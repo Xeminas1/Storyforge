@@ -28,7 +28,7 @@ import uuid
 import zipfile
 from pathlib import Path, PurePosixPath
 
-VERSION = "0.12.1"
+VERSION = "0.13.0"
 MAX_ZIP_SIZE = 30 * 1024 * 1024
 MAX_UNPACKED = 80 * 1024 * 1024
 MAX_FILES = 250

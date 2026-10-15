@@ -131,6 +131,8 @@ class Handler(BaseHTTPRequestHandler):
                     if path.startswith("/api/campaigns/"):
                         parts = path.split("/")
                         campaign_id = parts[3]
+                        if len(parts) == 5 and parts[4] == "lore-context":
+                            return self.reply({'lore': engine.preview_campaign_lore(con,campaign_id)})
                         if len(parts) == 5 and parts[4] == "messages":
                             return self.reply({"messages": engine.get_messages(con, campaign_id)})
                         if len(parts) == 5 and parts[4] == 'feedback':

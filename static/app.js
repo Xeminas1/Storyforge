@@ -348,8 +348,24 @@ function renderWorldDetails(world) {
     $('world-detail-description').insertAdjacentElement('afterend',button);
   }
   $('world-lore-research').onclick=()=>showLoreResearch(world.id,world.title);
+  if(!$('world-gm-context')){
+    const button=document.createElement('button');button.id='world-gm-context';button.className='button secondary small';button.textContent='◎ What lore does the GM see?';
+    $('world-lore-research').insertAdjacentElement('afterend',button);
+  }
+  $('world-gm-context').onclick=showGmLoreContext;
   $('world-lore-entries').innerHTML=(world.sections||[]).slice(0,60).map((entry,i)=>`<details class="lore-entry"><summary><span>${escapeHtml(entry.title||'World entry')}</span><small>${escapeHtml(entry.kind||'lore')}</small></summary><p>${escapeHtml((entry.content||'').slice(0,1800))}</p></details>`).join('')||'<p class="muted">No lore entries available</p>';
 }
+async function showGmLoreContext(){
+  if(!state.active){toast('Open an adventure to inspect GM lore',true);return;}
+  try{
+    const data=await request('/api/campaigns/'+encodeURIComponent(state.active.id)+'/lore-context');
+    const lore=data.lore;
+    const entries=(lore.selected_entries||[]).map(e=>`<details class="lore-entry"><summary><span>${escapeHtml(e.title)}</span><small>${escapeHtml(e.kind)}</small></summary><p>${escapeHtml(e.content)}</p>${e.source?`<p class="muted">Source: ${escapeHtml(e.source)}</p>`:''}</details>`).join('');
+    showModal('GAME MASTER CONTEXT','Lore supplied to the GM',
+      `<p class="muted">${escapeHtml(lore.notice)}</p><h3>${escapeHtml(lore.world_title)}</h3><div class="detail-label">WORLD PREMISE — ALWAYS INCLUDED</div><p>${escapeHtml(lore.premise||'No world overview saved.')}</p><details class="lore-entry"><summary>Show full GM scenario guidance</summary><p>${escapeHtml(lore.scenario_guidance||'')}</p></details><div class="detail-label">SELECTED LORE: ${(lore.selected_entries||[]).length} OF ${Number(lore.total_saved_entries)||0} SAVED ENTRIES</div>${entries||'<p class="muted">No detailed lore entries are saved. Use Discover lore to add them.</p>'}`);
+  }catch(e){toast(e.message,true);}
+}
+
 function revealDetailsOnMobile(){
   if(window.matchMedia('(max-width: 700px)').matches) document.querySelector('.details').classList.add('show-on-mobile');
 }
@@ -481,8 +497,9 @@ function renderCodexTab(){
 }
 function renderCodexWorld(){
   const w=state.world;
-  $('codex-body').innerHTML=`<div class="codex-world-header"><h2>${escapeHtml(w.title)}</h2><p>${escapeHtml(w.description||'Explore this world through your story.')}</p><span class="muted">Created by ${escapeHtml(w.author||'Unknown')}</span><br><button class="button secondary small" id="codex-research-lore">◈ Discover lore</button></div><div class="codex-grid">${(w.sections||[]).slice(0,150).map(e=>codexSection(e.title||'Lore',`<div class="eyebrow">${escapeHtml(e.kind||'lore')}</div>${paragraph((e.content||'').slice(0,10000))}`)).join('')}</div>`;
+  $('codex-body').innerHTML=`<div class="codex-world-header"><h2>${escapeHtml(w.title)}</h2><p>${escapeHtml(w.description||'Explore this world through your story.')}</p><span class="muted">Created by ${escapeHtml(w.author||'Unknown')}</span><br><button class="button secondary small" id="codex-research-lore">◈ Discover lore</button> <button class="button secondary small" id="codex-gm-context">◎ GM lore context</button></div><div class="codex-grid">${(w.sections||[]).slice(0,150).map(e=>codexSection(e.title||'Lore',`<div class="eyebrow">${escapeHtml(e.kind||'lore')}</div>${paragraph((e.content||'').slice(0,10000))}`)).join('')}</div>`;
   $('codex-research-lore')?.addEventListener('click',()=>showLoreResearch(w.id,w.title));
+  $('codex-gm-context')?.addEventListener('click',showGmLoreContext);
 }
 function renderCodexJournal(){
   const journal=state.active.state?.journal||[];

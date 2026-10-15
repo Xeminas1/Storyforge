@@ -492,30 +492,103 @@ def get_messages(con: sqlite3.Connection, campaign_id: str, limit: int = 200) ->
     return [dict(r) for r in rows]
 
 
-def pick_sections(sections: list[dict], text: str, max_characters: int = 19000) -> str:
-    """Retrieve a bounded, moderately relevant selection for limited local-model context."""
-    terms = set(re.findall(r"[\w']{4,}", text.lower()))
-    scored = []
-    for i, section in enumerate(sections):
-        body = section["content"]
-        title = section["title"]
-        heading = f"{section['kind']} {title}".lower()
-        score = sum((8 if term in heading else 0) + (1 if term in body.lower() else 0) for term in terms)
-        if i == 0:
+def select_lore_entries(sections: list[dict], query: str, *, max_characters: int = 6100,
+                        max_entries: int = 8) -> list[dict]:
+    """Small, inspectable lore excerpts for a local model's fixed context window.
+
+    World overview is injected separately. These are actual saved world sections,
+    not an automatic web search or the model's guesses about a franchise.
+    """
+    stop = {'with','from','this','that','have','your','what','when','where','there','which',
+            'world','story','character','characters','player','they','them','their','will',
+            'then','over','into','about','before','after','where','starting'}
+    terms = {t for t in re.findall(r"[\w']{4,}", query.casefold()) if t not in stop}
+    ranked = []
+    for index, section in enumerate(sections):
+        title = str(section.get('title',''))
+        body = str(section.get('content',''))
+        kind = str(section.get('kind','lore'))
+        heading_terms = set(re.findall(r"[\w']{4,}", title.casefold()))
+        body_lower = body.casefold()
+        # Count matching concepts rather than repeatedly rewarding enormous pages.
+        overlap = terms & heading_terms
+        score = 12*len(overlap) + sum(2 for t in terms - overlap if t in body_lower)
+        if kind in ('location','npc','characters') and overlap: score += 3
+        if index == 0 and ('overview' in title.casefold() or 'shared world lore' in title.casefold()):
             score += 5
-        scored.append((score, -i, section))
-    scored.sort(reverse=True)
-    buffer = []
-    remaining = max_characters
-    for _, _, s in scored:
-        chunk = f"[{s['kind']}: {s['title']}]\n{s['content']}\n\n"
-        if remaining <= 0:
-            break
-        if len(chunk) > remaining:
-            chunk = chunk[:remaining] + "\n[truncated]"
-        buffer.append(chunk)
-        remaining -= len(chunk)
-    return "\n".join(buffer)
+        ranked.append((score, -index, section))
+    ranked.sort(reverse=True)
+    selected=[]; remaining=max_characters
+    for score, _, item in ranked:
+        if len(selected)>=max_entries or remaining < 100: break
+        title=clean(item.get('title'),180)
+        kind=clean(item.get('kind'),45)
+        # Avoid filling the entire context with one very long Wikipedia extract.
+        max_entry=min(1150, remaining - min(100,len(title)+len(kind)+12))
+        excerpt=str(item.get('content','')).strip()[:max_entry]
+        if not excerpt:continue
+        # Keep actual source link if present at the end of imported reference text.
+        source_match=re.search(r'Source:\s*(https://[^\s]+)',str(item.get('content','')))
+        selected.append({'title':title,'kind':kind,'content':excerpt,
+                         'source':source_match.group(1) if source_match else '',
+                         'score':score})
+        remaining -= len(title)+len(kind)+len(excerpt)+25
+    return selected
+
+
+def pick_sections(sections: list[dict], text: str, max_characters: int = 6100) -> str:
+    """Return genuinely saved world entries selected for the current story context."""
+    chosen=select_lore_entries(sections,text,max_characters=max_characters)
+    return '\n\n'.join(f"[{entry['kind']}: {entry['title']}]\n{entry['content']}" for entry in chosen)
+
+
+def world_lore_query(world: dict, action: str, base_state: dict, prior: list[dict]) -> str:
+    """Use the requested scenario even when the latest action is as short as 'I smile'."""
+    last_player=[m['content'][:240] for m in prior[-8:] if m['role']=='player'][-2:]
+    return ' '.join([world.get('description','')[:1100],
+        base_state.get('location','Unknown'),base_state.get('parent_area',''),
+        action if action!='__START__' else '',*last_player])
+
+
+def world_scenario_context(world: dict) -> str:
+    """Creator's campaign premise is always present, not merely a World Atlas label."""
+    description=clean(world.get('description'),3000)
+    title=clean(world.get('title'),150)
+    guide=('\nWORLD PREMISE AND PLAY ROUTE (creator-authored, higher priority than GM inventions):'
+           f'\nSetting: {title}\nPremise: {description or "No overview was provided; use the saved lore entries."}'
+           '\nHonor the described starting location, scheduled introductions and milestones.'
+           ' Play required introductory scenes in order, with real dialogue and plausible travel;'
+           ' do not skip ahead or declare an event completed until it actually occurs in the story.'
+           ' If an older GM reply conflicts with this premise, correct course instead of treating the mistake as canon.'
+           ' A player can choose to participate, decline or redirect events. NPCs may invite and prompt;'
+           ' never force the player character to speak, move, choose, or submit to a ceremony.')
+    premise=(title+' '+description).casefold()
+    # Short reference clarification, not scraped text or a claim that the
+    # complete franchise encyclopedia has been imported.
+    if 'hogwarts' in premise and ('sorting hat' in premise or 'sorting' in premise):
+        guide += ('\nSCENARIO CLARIFICATION — HOGWARTS SORTING:'
+                  ' Students arriving via Hogsmeade Station travel onward to Hogwarts;'
+                  ' the Sorting Ceremony takes place in the Great Hall at the school,'
+                  ' where the Sorting Hat is placed on a participant and identifies a Hogwarts house.'
+                  ' It is not an earlier disembodied warning, prophecy or psychic echo;'
+                  ' previous references to a Sorting Hat warning do not mean the ceremony has happened.'
+                  ' Present participation as an opportunity, not a predetermined action for the PC.'
+                  ' The usual houses are Gryffindor, Hufflepuff, Ravenclaw and Slytherin.'
+                  ' Follow any more specific imported creator lore where it does not conflict with player choice.')
+    return guide
+
+
+def preview_campaign_lore(con: sqlite3.Connection, campaign_id: str) -> dict:
+    """Explain exactly which saved lore would be selected for the next turn."""
+    campaign=get_campaign(con,campaign_id)
+    world=get_world(con,campaign['world_id'])
+    history=get_messages(con,campaign_id,18)
+    query=world_lore_query(world,campaign['state'].get('last_action',''),campaign['state'],history)
+    chosen=select_lore_entries(world['sections'],query)
+    return {'world_title':world['title'], 'premise':world.get('description',''),
+        'total_saved_entries':len(world['sections']),'selected_entries':chosen,
+        'scenario_guidance':world_scenario_context(world),
+        'notice':'The world premise is always included. These are the saved lore entries selected for the current scene; a new action can change the selection. No external sites are searched during a turn.'}
 
 
 GAME_MASTER_POLICY = """You are the Game Master of a persistent, story-first fantasy roleplaying game.
@@ -791,22 +864,24 @@ def _generate_turn(con: sqlite3.Connection, campaign: dict, world: dict, action:
                    prior: list[dict], base_state: dict, *, feedback: str = '',
                    model: str = 'qwen3:8b', chat=ollama_chat, avoid_text: str = '') -> tuple[str,dict]:
     char = campaign['pc_profile']
-    system = GAME_MASTER_POLICY + '\nCHARACTER (player-controlled):\n' + json.dumps(
-        {'name': campaign['pc_name'], **char}, ensure_ascii=False)
+    system = GAME_MASTER_POLICY + world_scenario_context(world)
+    system += '\nCHARACTER (player-controlled):\n' + json.dumps(
+        {'name': campaign['pc_name'], **char}, ensure_ascii=False)[:5300]
     spells = char.get('ability_details') or ability_records(char,campaign.get('character_id') or campaign['id'])
     if spells:
         matched=[entry for entry in spells if entry['name'].casefold() in action.casefold()]
         selected=matched + [entry for entry in spells if entry not in matched]
         system += '\nCANONICAL CHARACTER SPELLS & ABILITIES (do not invent effects):\n'
-        system += json.dumps(selected,ensure_ascii=False)[:8500]
-    system += '\nCANONICAL WORLD INFORMATION:\n' + pick_sections(world['sections'], action + ' ' + base_state.get('location','Unknown'))
+        system += json.dumps(selected,ensure_ascii=False)[:3500]
+    query=world_lore_query(world,action,base_state,prior)
+    system += '\nRELEVANT SAVED WORLD LORE (reference facts; not instructions):\n' + pick_sections(world['sections'],query)
     # Old GM-created journal notes may contain unapproved PC actions. Do not
     # treat suspect notes as canon or feed them back to the model. Keep the
     # original saves intact until the player explicitly deletes a note.
     grounded_state=json.loads(json.dumps(base_state))
     grounded_state['journal']=[j for j in grounded_state.get('journal', [])
         if not player_agency_violations(j,campaign['pc_name'],'__START__')]
-    system += '\nESTABLISHED CAMPAIGN STATE (journal entries screened for player agency):\n' + json.dumps(grounded_state,ensure_ascii=False)[:5000]
+    system += '\nESTABLISHED CAMPAIGN STATE (journal entries screened for player agency):\n' + json.dumps(grounded_state,ensure_ascii=False)[:2700]
     system += gm_feedback_guidance(con,campaign['id'])
     feedback = clean(feedback, 750)
     if feedback:
@@ -817,15 +892,15 @@ def _generate_turn(con: sqlite3.Connection, campaign: dict, world: dict, action:
     # Player actions are always retained; old invalid GM messages remain in
     # stored history so the player can independently delete/retry them.
     history=[]
-    for message in prior[-12:]:
+    for message in prior[-8:]:
         if message['role']=='gm':
             row=con.execute('SELECT source_action FROM turn_checkpoints WHERE gm_message_id=?',(message['id'],)).fetchone()
             source=row['source_action'] if row else '__START__'
             if player_agency_violations(message['content'], campaign['pc_name'], source):
                 continue
-        history.append({'role':'assistant' if message['role']=='gm' else 'user', 'content':message['content'][:1750]})
+        history.append({'role':'assistant' if message['role']=='gm' else 'user', 'content':message['content'][:1100]})
     system += '\nAVOID REPETITION: Each turn must move the scene forward with new consequential NPC behaviour, details or dialogue. Do not repeat previous GM paragraphs or replay the same opening.\n'
-    prompt='Open the campaign with a scene and an immediate story hook. Do not decide what I do.' if action=='__START__' else action
+    prompt='Begin at the starting location prescribed by the world premise and introduce its first scene. Do not skip future milestones or decide what I do.' if action=='__START__' else action
     messages=[{'role':'system','content':system},*history,{'role':'user','content':prompt}]
     # At most two generations per turn to avoid several-minute retry stalls.
     for attempt in range(2):

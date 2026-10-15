@@ -1,3 +1,21 @@
+# Storyforge v0.13.0 — world premise and contextual lore grounding
+
+World Atlas description is now **always** included in Game Master instructions. This repairs a bug where the description was stored and displayed but was omitted from the local model's actual context whenever the world contained separate lore entries.
+
+- Treat creator-provided starting location and future milestones as a scenario to progress through without skipping scenes or commandeering the PC.
+- A short scenario clarification for worlds explicitly referencing Hogwarts and Sorting distinguishes the arrival at Hogsmeade Station from the later Great Hall Sorting Ceremony. The PC must choose their own participation and house decisions.
+- Select a compact, relevant subset of saved world lore using the overview, current location, player action and recent player actions. Long lore excerpts are capped so the 8,192-token local model context is less likely to be crowded out.
+- World tab and World Atlas now provide **What lore does the GM see?**. It displays the always-included premise and selected saved entries. The displayed selection is based on the current scene; it may change with your next action.
+- This feature **does not import new lore by itself**. Use **Discover lore** to add specific characters, places, or settings. The model should not pretend unspecified events have already occurred.
+
+Previously generated GM messages and old journal entries are not rewritten by an update. Use Retry/Feedback to correct a past scene; older turn state checkpoints still apply.
+
+## Tests
+
+`python -m unittest discover -s tests -v` and `node --check static/app.js`. Verify the ZIP with the installed v0.12.1 updater. Saved campaign database is not replaced by the update.
+
+---
+
 # Storyforge v0.12.1 — Player agency and journal integrity hotfix
 
 Fixes GM first-person and third-person player action hallucinations, and validates Story Developments as well as narration. Existing suspect journal entries are excluded from GM context and can be removed by the player from the Story Developments panel. This does not silently rewrite old messages.
