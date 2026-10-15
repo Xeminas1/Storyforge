@@ -22,7 +22,7 @@ PORT = int(os.getenv("STORYFORGE_PORT", "8787"))
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Storyforge/0.6.1"
+    server_version = "Storyforge/0.6.2"
 
     def _send(self, status: int, data: bytes, mime: str) -> None:
         self.send_response(status)

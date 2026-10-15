@@ -1,3 +1,13 @@
+# Storyforge v0.6.2 — full character portraits
+
+This patch fixes portrait images being cropped in both the small sidebar character card and the full Character menu. Portraits now use `object-fit: contain` and a taller portrait-shaped container, so the whole uploaded image remains visible. Landscape and square images will be letterboxed rather than cropped. The character editor, overlays and local saved artwork are unchanged.
+
+**Updating:** In Storyforge v0.6.1, go to **Updates → Check & install latest release now**. Storyforge will back up saves and restart. If the automatic update does not run, use the v0.6.2 ZIP from the official GitHub release. Do not delete your `data/` folder.
+
+**Validation:** All unit tests and portrait-specific regression checks must pass before publishing. The project uses Ollama for story generation, optional Kokoro for spoken narration, and optional ComfyUI for generated art. No ComfyUI restart or new portrait upload is required for this CSS-only layout fix.
+
+Repository: https://github.com/Xeminas1/Storyforge
+
 # Storyforge v0.6.1 — updater compatibility fix
 
 **Use v0.6.1, not v0.6.0.** The initial 0.6.0 package included a new Python source file that the older v0.5.1 updater would reject. Version 0.6.1 puts the same image-generation functionality in the already-approved core module `engine.py`. It is compatible with the v0.5.1 and v0.5.0 updater file allowlists. Your saved campaigns and existing voice setup stay intact.
