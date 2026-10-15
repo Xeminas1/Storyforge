@@ -1,3 +1,27 @@
+# Storyforge v0.12.0 — Scene-aware ambient music and GM response reliability
+
+## Ambient soundtrack
+
+The adventure's right sidebar now has **Ambient music** with a play/stop button, volume independent of narrator volume, and a scene mood menu: Auto, Exploration, Tavern, Mystery, Danger, Peace. Auto mode chooses a mood based on recent location or prose (heuristic, not story state). Music is synthesised on-device using the browser's Web Audio API: it is a modest, evolving instrumental drone and chime melody, **not** an external music service or commercial soundtrack. It doesn't download or stream music, require an account, or include copyrighted music recordings. Music ducks to about 32% of its chosen volume during speech and returns afterward.
+
+Due to browser autoplay restrictions, press **Play music** once per browser session. Music is off by default and never starts automatically without permission. The optional preference is saved locally in your browser.
+
+## Repetition and slow retry corrections
+
+The GM checks whether a new response repeats substantial passages from earlier GM messages or repeats a paragraph inside its own answer. It asks for a fresh reply rather than storing obvious copies. Very short or appropriately recurrent details are allowed. Checks are heuristic and won't prevent every thematic repetition.
+
+The GM now makes **at most two** generation attempts rather than three. Local Ollama inference has a 70-second per-call network timeout and an approximate 1050-token cap, and Qwen3's optional thinking mode is disabled for the structured narration task. Failure returns a clear message without consuming the player action or deleting an older reply. If the local GPU is overloaded or a long lore context causes slow inference, choose a faster installed Ollama model or shorten the action.
+
+## Data / compatibility
+
+No changes to the persistent SQLite schema. The new music feature is browser-only; existing saved characters, scene artwork, spellbooks and message history are preserved. The release ZIP is checked against the installed v0.11.0 updater before publication.
+
+## Tests
+
+Run `python -m unittest discover -s tests` and `node --check static/app.js`. The local audio controls are not a guarantee about audio performance on every Windows sound device; test in Brave with Kokoro.
+
+---
+
 # Storyforge v0.11.0 — message correction, rewind and feedback
 
 **Hotfix:** v0.10.0 accidentally included `lore.py`, which Storyforge v0.9.0 rejects as an unapproved update path. Version 0.10.1 moves the lore functionality into the existing approved `engine.py` module and removes the incompatible file from the release archive. No saved campaigns or art are affected. The original v0.9.0 updater can now install this release without relaxing its path restrictions.

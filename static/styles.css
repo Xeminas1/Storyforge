@@ -329,3 +329,11 @@ html,body{height:100%;scrollbar-color:#40505c #0e161e}
 .correction-excerpt{max-height:150px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#0c1720;border:1px solid #334653;border-radius:8px;padding:13px;color:#d9dfd6;font:13px/1.6 system-ui,sans-serif}
 .story-confirm-actions{display:flex;justify-content:flex-end;gap:10px;margin:15px 0}
 @media(max-width:700px){.story-message-tools{gap:5px}.story-message-tools button{font-size:11px;padding:6px 8px}}
+
+/* v0.12 ambient audio: controls are discrete from spoken narration. */
+.ambient-settings{margin-top:12px;border:1px solid #4b483a;border-radius:9px;background:#13202a;}
+.ambient-settings[open]>summary{border-bottom:1px solid #34424b;}
+.ambient-settings .voice-settings-inner{display:flex;flex-direction:column;gap:9px;}
+.ambient-settings .sound-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;}
+.ambient-settings #ambient-status{flex:1;line-height:1.5;}
+.ambient-settings input[type=range]{width:100%;accent-color:#d5a55f;}

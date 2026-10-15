@@ -308,6 +308,7 @@ function renderMessages() {
 }
 function updateState(s) {
   $('current-location').textContent=s.location||'Unknown';
+  if(ambient.playing&&$('ambient-mood').value==='auto')ambientStartMood();
   $('scene-title').textContent=s.location||'Uncharted territory';
   if(state.active && state.sceneLocation !== (s.location||'Unknown')) {
     state.sceneLocation=s.location||'Unknown';state.sceneRecord=null;$('adventure').classList.remove('has-scene-background');$('adventure').style.removeProperty('--story-scene-art');
@@ -700,7 +701,7 @@ function stopSpeech(){
   speechSequence++;clearAudio();
   if('speechSynthesis' in window) speechSynthesis.cancel();
   state.speechPaused=false;state.speaking=false;
-  narrationStatus('Narration stopped');updatePlaybackButtons();
+  narrationStatus('Narration stopped');updatePlaybackButtons();ambientSetVolume();
 }
 function toggleSpeechPause(){
   if(!state.speaking)return;
@@ -739,7 +740,7 @@ function speechChunks(text, limit=180){
 function speechDone(seq){
   if(seq!==speechSequence)return;
   state.speaking=false;state.speechPaused=false;
-  narrationStatus('Narration finished');updatePlaybackButtons();
+  narrationStatus('Narration finished');updatePlaybackButtons();ambientSetVolume();
 }
 function playBrowserSpeech(text,seq){
   if(!('speechSynthesis' in window)){stopSpeech();toast('Speech is unavailable in this browser',true);return;}
@@ -822,7 +823,7 @@ function speak(text){
   text=speechPlainText(text);
   if(!text.trim())return;
   stopSpeech();const seq=speechSequence;
-  state.speaking=true;state.speechPaused=false;
+  state.speaking=true;state.speechPaused=false;ambientSetVolume();
   narrationStatus('Preparing narration…');updatePlaybackButtons();
   if($('voice-engine').value==='kokoro')playNeuralSpeech(text,seq);
   else playBrowserSpeech(text,seq);
@@ -1048,6 +1049,99 @@ $('volume').oninput=()=>{
 };
 $('voice-engine').onchange=()=>{stopSpeech();settingsPut('engine',$('voice-engine').value);populateVoices();};
 $('voices').onchange=()=>{settingsPut('voice_'+$('voice-engine').value,$('voices').value)};
+
+// Local, procedural instrumental soundtrack. Runs entirely in Web Audio on this
+// device: no web-streamed or copyrighted tracks. A user click is required
+// before AudioContext can produce sound in Brave/Chromium.
+const AMBIENT_MOODS={
+  exploration:{tones:[146.83,174.61,220,293.66],melody:[293.66,349.23,440,392,293.66],tempo:2700,filter:1800},
+  tavern:{tones:[196,246.94,293.66,392],melody:[392,440,493.88,587.33,440],tempo:2150,filter:2400},
+  mystery:{tones:[110,130.81,164.81,220],melody:[220,246.94,261.63,196,174.61],tempo:3400,filter:1000},
+  danger:{tones:[110,130.81,155.56,220],melody:[220,233.08,261.63,155.56,220],tempo:1800,filter:950},
+  peace:{tones:[174.61,220,261.63,349.23],melody:[349.23,392,440,523.25,440],tempo:3300,filter:2000}
+};
+const ambient={context:null,master:null,drone:[],tick:null,playing:false,mood:'',counter:0};
+function ambientSceneMood(){
+  const txt=((state.active?.state?.location||'')+' '+(state.lastNarration||'').slice(-1400)).toLowerCase();
+  if(/battle|fight|attack|ambush|combat|bloodshed|chase|siege/.test(txt))return 'danger';
+  if(/tavern|inn|pub|market|festival|ballroom|feast/.test(txt))return 'tavern';
+  if(/crypt|grave|dungeon|shadow|fog|haunted|cemetery|mystery/.test(txt))return 'mystery';
+  if(/garden|sanctuary|chapel|temple|peaceful|meadow/.test(txt))return 'peace';
+  return 'exploration';
+}
+function ambientSelectedMood(){return $('ambient-mood').value==='auto'?ambientSceneMood():$('ambient-mood').value;}
+function ambientSetVolume(){
+  $('ambient-volume-value').textContent=$('ambient-volume').value+'%';
+  settingsPut('ambient-volume',$('ambient-volume').value);
+  if(ambient.master&&ambient.context){
+    const target=Number($('ambient-volume').value)/100*(state.speaking ? 0.32 : 1);
+    ambient.master.gain.setTargetAtTime(target,ambient.context.currentTime,.2);
+  }
+}
+function ambientStopNotes(){
+  if(ambient.tick){clearInterval(ambient.tick);ambient.tick=null;}
+  for(const oscillator of ambient.drone){try{oscillator.stop()}catch{}}
+  ambient.drone=[];
+}
+function ambientTone(hertz,at,length,level,kind='sine'){
+  const ctx=ambient.context;if(!ctx||!ambient.master)return;
+  const oscillator=ctx.createOscillator();oscillator.type=kind;oscillator.frequency.setValueAtTime(hertz,at);
+  const gain=ctx.createGain();gain.gain.setValueAtTime(.00001,at);
+  gain.gain.linearRampToValueAtTime(level,at+Math.min(.7,length/3));
+  gain.gain.exponentialRampToValueAtTime(.00001,at+length);
+  oscillator.connect(gain);gain.connect(ambient.master);
+  oscillator.start(at);oscillator.stop(at+length+.01);
+}
+function ambientStartMood(){
+  if(!ambient.context||!ambient.playing)return;
+  const mood=ambientSelectedMood();if(mood===ambient.mood && ambient.tick)return;
+  ambientStopNotes();ambient.mood=mood;ambient.counter=0;
+  const cfg=AMBIENT_MOODS[mood]||AMBIENT_MOODS.exploration;
+  const ctx=ambient.context;
+  // Low organ-like atmospheric pad with slow independent pulses.
+  cfg.tones.slice(0,3).forEach((note,i)=>{
+    const osc=ctx.createOscillator();osc.type='sine';osc.frequency.value=note/(i===0?2:1);
+    const amp=ctx.createGain();amp.gain.value=i===0?.055:.025;
+    osc.connect(amp);amp.connect(ambient.master);osc.start();ambient.drone.push(osc);
+  });
+  const playNote=()=>{
+    if(!ambient.playing||ambient.context?.state!=='running')return;
+    const n=ambient.counter++;
+    const note=cfg.melody[(n+(n%3===0?1:0))%cfg.melody.length];
+    ambientTone(note,ctx.currentTime+.05,cfg.tempo/1000*1.05,.035,'sine');
+    if(n%4===0)ambientTone(note*1.5,ctx.currentTime+.7,1.9,.011,'triangle');
+  };
+  playNote();ambient.tick=setInterval(playNote,cfg.tempo);
+  $('ambient-status').textContent='Playing '+mood+' · ducking under GM voice';
+}
+async function ambientToggle(force){
+  const enable=typeof force==='boolean'?force:!ambient.playing;
+  if(!enable){ambient.playing=false;ambientStopNotes();
+    if(ambient.context){await ambient.context.suspend().catch(()=>{});}
+    $('ambient-toggle').textContent='▶ Play music';$('ambient-status').textContent='Music paused';return;
+  }
+  const AudioContextClass=window.AudioContext||window.webkitAudioContext;
+  if(!AudioContextClass){toast('This browser does not support local ambient audio',true);return;}
+  try{
+    if(!ambient.context){ambient.context=new AudioContextClass();ambient.master=ambient.context.createGain();ambient.master.connect(ambient.context.destination);}
+    await ambient.context.resume();ambient.playing=true;
+    ambientSetVolume();ambientStartMood();$('ambient-toggle').textContent='■ Stop music';
+  }catch(e){ambient.playing=false;toast('Could not start ambient audio: '+e.message,true);}
+}
+$('ambient-auto').checked=settingsGet('ambient-enabled','false')==='true';
+$('ambient-mood').value=settingsGet('ambient-mood','auto');
+$('ambient-volume').value=settingsGet('ambient-volume','22');ambientSetVolume();
+$('ambient-toggle').onclick=()=>{const on=!ambient.playing;$('ambient-auto').checked=on;settingsPut('ambient-enabled',String(on));ambientToggle(on);};
+$('ambient-auto').onchange=()=>{settingsPut('ambient-enabled',String($('ambient-auto').checked));ambientToggle($('ambient-auto').checked);};
+$('ambient-mood').onchange=()=>{settingsPut('ambient-mood',$('ambient-mood').value);if(ambient.playing)ambientStartMood();};
+$('ambient-volume').oninput=ambientSetVolume;
+// Autoplay policies require an explicit interaction after every browser launch.
+// If music was enabled in a previous visit, resume on the next user gesture.
+if($('ambient-auto').checked){
+  $('ambient-status').textContent='Tap Play music to resume your saved soundtrack';
+  document.addEventListener('pointerdown',()=>{if($('ambient-auto').checked&&!ambient.playing)ambientToggle(true);},{once:true});
+}
+
 $('speed').value=settingsGet('speed','1');$('speed').oninput();
 $('volume').value=settingsGet('volume','85');$('volume').oninput();
 $('voice-engine').value=settingsGet('engine','browser');

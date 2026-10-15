@@ -5,6 +5,7 @@ Standard library only; no automated access to third-party world sites.
 from __future__ import annotations
 
 import datetime as dt
+import difflib
 import io
 import json
 import os
@@ -660,18 +661,20 @@ def ollama_chat(messages: list[dict], model: str, host: str | None = None) -> st
         # External model servers could receive private campaign/world data.
         raise ValueError("OLLAMA_URL must point to a local Ollama server in this release")
     request_body = {"model": clean(model, 100) or "qwen3:8b", "messages": messages,
-                    "stream": False, "format": "json", "options": {"temperature": 0.75, "num_ctx": 8192}}
+                    "stream": False, "format": "json", "options": {"temperature": 0.6, "num_ctx": 8192, "num_predict": 1050}}
+    if request_body["model"].startswith(("qwen3:", "qwen3.5:")):
+        request_body["think"] = False  # Faster direct GM replies; do not spend tokens on hidden reasoning.
     req = urllib.request.Request(address + "/api/chat", data=json.dumps(request_body).encode("utf-8"),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=150) as response:
+        with urllib.request.urlopen(req, timeout=70) as response:
             answer = json.load(response)
         return str(answer["message"]["content"])
     except urllib.error.HTTPError as exc:
         detail = exc.read(500).decode("utf-8", errors="replace")
         raise RuntimeError(f"Ollama rejected the request ({exc.code}): {detail}") from exc
     except TimeoutError as exc:
-        raise RuntimeError("The Game Master timed out. Your action was not saved; try again or select a faster model.") from exc
+        raise RuntimeError("The Game Master took too long (70-second limit). Nothing was saved; try a faster Ollama model or retry.") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError("Cannot reach Ollama. Check that the local model is running.") from exc
     except (KeyError, TypeError, ValueError) as exc:
@@ -704,6 +707,38 @@ def player_agency_violations(narration: str, pc_name: str, action: str) -> list[
     return findings
 
 
+def gm_repetition_violations(narration: str, prior: list[dict]) -> list[str]:
+    """Conservative checks for repeated text, not legitimate recurring subjects.
+
+    Ignores the required location/time header and only flags substantial exact
+    paragraphs or unusually similar lengthy prose. This is a heuristic; it
+    will not catch all creatively paraphrased repetition.
+    """
+    def body(txt):
+        return re.sub(r'^\s*\[[^\]\n]+\]\s*\n+', '', str(txt or '')).strip()
+    def norm(txt):
+        return ' '.join(re.findall(r"[\w']+", txt.casefold()))
+    text = body(narration)
+    if len(text) < 110:
+        return []
+    # Internally copied narrative paragraphs.
+    blocks = [norm(p) for p in re.split(r'\n\s*\n+', text) if len(norm(p)) >= 110]
+    for index, paragraph in enumerate(blocks):
+        if paragraph in blocks[:index]:
+            return ['repeated paragraph within the GM reply']
+    # Compared with recent GM messages, not user actions.
+    for previous in (x.get('content', '') for x in prior[-7:] if x.get('role') == 'gm'):
+        old = norm(body(previous)); new = norm(text)
+        if len(old) < 110 or len(new) < 110:
+            continue
+        if old == new or (min(len(old),len(new)) > 180 and difflib.SequenceMatcher(None,old[:3000],new[:3000],autojunk=True).ratio() > 0.86):
+            return ['narration repeats an earlier GM reply']
+        # Avoid text reproducing a complete long old paragraph verbatim.
+        if any(len(b) > 170 and b in new for b in re.split(r'\n\s*\n+',body(previous)) for b in [norm(b)]):
+            return ['narration repeats an earlier GM paragraph']
+    return []
+
+
 def gm_feedback_guidance(con: sqlite3.Connection, campaign_id: str) -> str:
     """Previous local corrections become context, not model-weight training."""
     rows = con.execute("""SELECT reason FROM gm_feedback WHERE campaign_id=? AND reason<>''
@@ -715,7 +750,7 @@ def gm_feedback_guidance(con: sqlite3.Connection, campaign_id: str) -> str:
 
 def _generate_turn(con: sqlite3.Connection, campaign: dict, world: dict, action: str,
                    prior: list[dict], base_state: dict, *, feedback: str = '',
-                   model: str = 'qwen3:8b', chat=ollama_chat) -> tuple[str,dict]:
+                   model: str = 'qwen3:8b', chat=ollama_chat, avoid_text: str = '') -> tuple[str,dict]:
     char = campaign['pc_profile']
     system = GAME_MASTER_POLICY + '\nCHARACTER (player-controlled):\n' + json.dumps(
         {'name': campaign['pc_name'], **char}, ensure_ascii=False)
@@ -732,24 +767,28 @@ def _generate_turn(con: sqlite3.Connection, campaign: dict, world: dict, action:
     if feedback:
         system += ('\nIMMEDIATE PLAYER CORRECTION FOR THIS RETRY (fix this specific issue; do not narrate '
                    'the feedback as part of the fiction):\n' + feedback)
-    history=[{'role':'assistant' if m['role']=='gm' else 'user','content':m['content']} for m in prior]
+    # Keep recent context bounded so the local model can respond promptly.
+    history=[{'role':'assistant' if m['role']=='gm' else 'user','content':m['content'][:1750]} for m in prior[-12:]]
+    system += '\nAVOID REPETITION: Each turn must move the scene forward with new consequential NPC behaviour, details or dialogue. Do not repeat previous GM paragraphs or replay the same opening.\n'
     prompt='Open the campaign with a scene and an immediate story hook. Do not decide what I do.' if action=='__START__' else action
     messages=[{'role':'system','content':system},*history,{'role':'user','content':prompt}]
-    for attempt in range(3):
+    # At most two generations per turn to avoid several-minute retry stalls.
+    for attempt in range(2):
         raw=chat(messages,model)
         try:narration,changes=parse_gm_response(raw)
         except ValueError as exc:
-            if attempt==2:raise ValueError('The Game Master returned invalid text three times. Nothing was saved; retry.') from exc
+            if attempt==1:raise ValueError('The GM returned an invalid response twice. Nothing was saved. Try a different model or a shorter action.') from exc
             messages.extend([{'role':'assistant','content':str(raw)[:3500]},
                 {'role':'user','content':'Your response format was invalid. Return only a JSON object with narration and state_updates.'}])
             continue
-        violations=player_agency_violations(narration,campaign['pc_name'],action)
+        replay_context = prior + ([{'role':'gm','content':avoid_text}] if avoid_text else [])
+        violations=player_agency_violations(narration,campaign['pc_name'],action) + gm_repetition_violations(narration,replay_context)
         if not violations:
             state=apply_patch(base_state,changes,action)
             return scene_heading(narration,state,world['title']),state
-        if attempt==2:raise ValueError('The GM repeatedly acted or spoke for your character. Nothing was saved.')
+        if attempt==1:raise ValueError('The GM could not produce a suitable reply after two attempts ('+'; '.join(violations)+'). Nothing was saved. Try a different model or shorter prompt.')
         messages.extend([{'role':'assistant','content':str(raw)[:3500]},
-          {'role':'user','content':'REWRITE THIS TURN. You spoke/acted for the player ('+'; '.join(violations)+'). The player only submitted: '+action+'. Keep NPC actions, remove invented PC dialogue and decisions. Return valid JSON.'}])
+          {'role':'user','content':'REWRITE THIS TURN. Problems: '+'; '.join(violations)+'. The player only submitted: '+action+'. Respect player agency, do not repeat earlier narration, and advance the NPCs and setting. Return valid JSON.'}])
     raise ValueError('Game Master response failed; nothing was saved.')
 
 
@@ -857,7 +896,7 @@ def retry_message(con: sqlite3.Connection, campaign_id: str, message_id: int, *,
     prior=[dict(r) for r in con.execute('SELECT role,content FROM messages WHERE campaign_id=? AND id<? ORDER BY id DESC LIMIT 18',
                                       (campaign_id,before_id if action!='__START__' else cut)).fetchall()][::-1]
     world=get_world(con,campaign['world_id'])
-    narration,new_state=_generate_turn(con,campaign,world,action,prior,base,feedback=feedback,model=model,chat=chat)
+    narration,new_state=_generate_turn(con,campaign,world,action,prior,base,feedback=feedback,model=model,chat=chat,avoid_text=target['content'] if target['role']=='gm' else '')
     with con:
         _revision_update(con,campaign_id,campaign['revision'],new_state)
         _record_feedback(con,campaign_id,target,'retry' if target['role']=='gm' else 'resend',feedback)
