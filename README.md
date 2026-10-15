@@ -1,3 +1,14 @@
+# Storyforge v0.8.1 — artwork-led sidebar
+
+The adventure's right column is wider and its Scene panel gives location artwork a much larger, uninterrupted frame. Scene and World tabs, character information, location controls and campaign saves remain supported.
+
+- Scene title is shown above the illustration instead of covering it.
+- The image fills the larger frame, with **View full** to inspect the entire uncropped generated image. Close with the button, backdrop click or Escape.
+- Generate, Regenerate and Lock controls remain beneath the image.
+- Responsive sizes retain the existing mobile sidebar behaviour and preserve the story composer.
+
+To update from v0.8.0, use **Storyforge → Updates → Check & install latest release now** after GitHub publishes v0.8.1.
+
 # Storyforge v0.7.0 — Campaign-first home & reusable characters
 
 ## Changes

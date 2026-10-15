@@ -262,3 +262,31 @@ html,body{height:100%;scrollbar-color:#40505c #0e161e}
 .spell-editor-image{width:100%;max-height:210px;object-fit:contain;background:#121925;border-radius:7px;margin-bottom:10px}
 /* Spell editors open above the character codex rather than behind it. */
 .modal-shade{z-index:40}
+
+/* v0.8.1 — spacious, artwork-led adventure details. Keep controls below art. */
+#adventure .adventure-layout{grid-template-columns:minmax(0,1fr) clamp(365px,25vw,430px)}
+#adventure .details{background:#0b151b;overflow-x:hidden;padding-bottom:22px}
+#adventure .detail-tabs{height:57px;min-height:57px;background:#0c171e}
+#adventure .detail-tab{font-size:12px}
+#adventure .detail-panel{padding:15px 15px 6px}
+.scene-visual-heading{display:flex;flex-direction:column;gap:6px;padding:5px 2px 15px}
+.scene-visual-heading h2{font-weight:400;color:#ecd6b5;line-height:1.25;font-size:21px;margin:0}
+#adventure .scene-art{height:clamp(305px,38vh,405px);width:100%;border:1px solid #62533f;border-radius:7px;background:linear-gradient(145deg,#27313c,#0e1720);box-shadow:0 6px 22px #0005;isolation:isolate}
+#adventure .scene-generated-image{object-fit:cover;object-position:center center}
+#adventure .scene-art:before{display:none}
+#adventure .scene-art-decoration{top:50%;transform:translateY(-50%)}
+.scene-expand{position:absolute;right:12px;top:12px;z-index:3;background:#0b121bde!important;border-color:#6f6860!important;color:#f2d9b0!important;font-size:11px!important;padding:8px 11px!important;box-shadow:0 4px 16px #0009}
+.scene-expand:disabled{display:none}
+#adventure .scene-note{padding:14px 3px 19px;margin:0 0 16px}
+#adventure .scene-note .eyebrow{color:#d3a867}
+#adventure .scene-note p#current-location{font-size:14px;color:#eadbc8;margin:6px 0 10px}
+#adventure .scene-image-actions{gap:8px;margin:12px 0}
+#adventure .scene-image-actions .button{font-size:11px;padding:9px 12px}
+#adventure .details-card{padding:20px 18px;margin:0 0 12px}
+.scene-lightbox{width:min(1050px,95vw);max-width:95vw;max-height:93dvh;overflow:hidden;margin:auto;background:#0a131a;color:#e9d8be;border:1px solid #866c48;border-radius:10px;padding:12px;box-shadow:0 20px 90px #000e}
+.scene-lightbox::backdrop{background:#030609e8;backdrop-filter:blur(7px)}
+.scene-lightbox-top{display:flex;align-items:center;justify-content:space-between;padding:0 5px 10px;font-size:16px;gap:14px}
+.scene-lightbox img{display:block;width:100%;max-height:calc(93dvh - 65px);object-fit:contain;border-radius:5px;background:#04070a}
+@media(max-width:1250px){#adventure .adventure-layout{grid-template-columns:minmax(0,1fr) 355px}}
+@media(max-width:1000px){#adventure .adventure-layout{grid-template-columns:minmax(0,1fr) 320px}#adventure .detail-panel{padding:12px}#adventure .scene-art{height:315px}}
+@media(max-width:700px){#adventure .adventure-layout{grid-template-columns:1fr}#adventure .details{width:min(96vw,395px)}#adventure .detail-panel{padding:12px 15px}#adventure .scene-art{height:clamp(280px,40vh,365px)}}
