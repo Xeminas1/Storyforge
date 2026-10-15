@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = { worlds: [], campaigns: [], active: null, world: null, messages: [], busy: false, lastNarration: '', neuralAvailable: false, speechPaused: false, speaking: false, detailTab: 'scene' };
+const state = { worlds: [], campaigns: [], active: null, world: null, messages: [], busy: false, lastNarration: '', neuralAvailable: false, speechPaused: false, speaking: false, detailTab: 'scene', portraitRev: 0, sceneLocation: '', sceneRecord: null, artStatus: null, codexTab: 'sheet' };
 
 async function request(url, { method = 'GET', body, raw = false } = {}) {
   const options = {method};
@@ -36,7 +36,7 @@ function toLibrary(){
   $('adventure').classList.add('hidden'); $('library').classList.remove('hidden');
   $('nav-worlds').classList.add('active'); $('nav-story').classList.remove('active');
   $('campaign-links').classList.add('hidden');document.querySelector('.details').classList.remove('show-on-mobile');
-  $('breadcrumb').textContent='Your library / Worlds'; state.active=null; stopSpeech(); refreshLibrary().catch(e=>toast(e.message,true));
+  $('breadcrumb').textContent='Your library / Worlds'; state.active=null;state.sceneLocation='';stopArtPolling();closeCodex();stopSpeech(); refreshLibrary().catch(e=>toast(e.message,true));
 }
 function showModal(eyebrow,title,content) {
   $('modal-eyebrow').textContent=eyebrow; $('modal-title').textContent=title;
@@ -114,6 +114,7 @@ function characterForm(world, campaign=null) {
         ${charText('pc-skills','SKILLS / PROFICIENCIES','Optional skills and proficiencies',2,read('skills'))}
         ${charText('pc-starting_items','STARTING ITEMS — ONE PER LINE','Optional equipment and possessions',3,read('starting_items'))}
       </details>
+      <div class="form-section"><div class="eyebrow">CHARACTER ARTWORK</div><label class="field"><span>UPLOAD A CHARACTER PORTRAIT (PNG, JPEG OR WEBP)</span><input id="pc-portrait-upload" type="file" accept="image/png,image/jpeg,image/webp"></label></div>
       <button class="button primary full" type="submit">${t}</button>
     </form><p class="muted note">Your abilities inform the narrator but never limit what you can attempt. Your appearance, personality and mannerisms stay part of your character's identity.</p>`;
 }
@@ -131,6 +132,7 @@ async function showCharacterModal(worldId) {
       try {
         const payload={world_id:worldId,title:$('campaign-title').value,...readCharacterForm()};
         const {campaign}=await request('/api/campaigns',{method:'POST',body:payload});
+        if($('pc-portrait-upload').files[0]) await uploadPortrait(campaign.id,$('pc-portrait-upload').files[0]);
         closeModal();await openCampaign(campaign.id);toast('Adventure created. Begin when you are ready.');
       }catch(err){toast(err.message,true)}finally{btn.disabled=false;}
     };
@@ -143,6 +145,7 @@ function showEditCharacterModal() {
     e.preventDefault();const btn=e.target.querySelector('button[type=submit]');btn.disabled=true;
     try {
       const {campaign}=await request('/api/campaigns/'+c.id+'/character',{method:'PATCH',body:readCharacterForm()});
+      if($('pc-portrait-upload').files[0]) await uploadPortrait(c.id,$('pc-portrait-upload').files[0]);
       state.active=campaign;closeModal();renderCharacter(campaign);toast('Character saved. Existing adventure preserved.');
     }catch(err){toast(err.message,true)}finally{btn.disabled=false;}
   };
@@ -150,6 +153,7 @@ function showEditCharacterModal() {
 function renderCharacter(campaign) {
   const pc=campaign.pc_profile||{};
   $('char-name').textContent=campaign.pc_name;
+  renderPortraitThumb(campaign.id);
   $('char-role-line').textContent=[pc.species,pc.role,pc.level?`Level ${pc.level}`:''].filter(Boolean).join(' · ');
   const hp=String(pc.max_hp||'').trim();
   const resources = [];
@@ -164,7 +168,7 @@ function renderCharacter(campaign) {
 async function openCampaign(campaignId) {
   try {
     const [{campaign}, {messages}] = await Promise.all([request('/api/campaigns/'+campaignId),request('/api/campaigns/'+campaignId+'/messages')]);
-    state.active=campaign; state.messages=messages; state.world=(await request('/api/worlds/'+campaign.world_id)).world;
+    state.sceneLocation='';stopArtPolling();closeCodex();state.active=campaign; state.messages=messages; state.world=(await request('/api/worlds/'+campaign.world_id)).world;
     $('library').classList.add('hidden'); $('adventure').classList.remove('hidden'); $('nav-worlds').classList.remove('active'); $('nav-story').classList.add('active'); $('campaign-links').classList.add('hidden');
     $('breadcrumb').textContent=`${state.world.title} / ${campaign.title}`;
     $('story-world').textContent=state.world.title; $('story-title').textContent=campaign.title;
@@ -192,6 +196,10 @@ function renderMessages() {
 function updateState(s) {
   $('current-location').textContent=s.location||'Unknown';
   $('scene-title').textContent=s.location||'Uncharted territory';
+  if(state.active && state.sceneLocation !== (s.location||'Unknown')) {
+    state.sceneLocation=s.location||'Unknown';state.sceneRecord=null;
+    refreshSceneArtwork(true).catch(e=>toast(e.message,true));
+  }
   $('scene-characters').innerHTML=state.active ? `<div class="scene-person"><span class="person-avatar">✦</span><div><strong>${escapeHtml(state.active.pc_name)}</strong><small>Your character</small></div></div><p class="muted note">Other characters will appear as the world develops. An automatic NPC presence tracker is planned.</p>` : '<p class="muted">No active character</p>';
   $('inventory').innerHTML=(s.inventory||[]).slice(-30).map(v=>`<li>${escapeHtml(v)}</li>`).join('')||'<li class="muted">Empty</li>';
   $('journal').innerHTML=(s.journal||[]).slice(-7).reverse().map(v=>`<li>${escapeHtml(v)}</li>`).join('')||'<li class="muted">The adventure has just begun</li>';
@@ -245,6 +253,153 @@ async function sendAction(value) {
     await refreshLibrary().catch(()=>{});
   }
 }
+// Fables-inspired navigation pattern: left rail opens full library panels;
+// the right sidebar continues to show a compact live scene/character snapshot.
+function closeCodex() {
+  $('codex-overlay').classList.add('hidden');$('codex-overlay').setAttribute('aria-hidden','true');
+  $('nav-character').classList.remove('active');$('nav-world-lore').classList.remove('active');$('nav-journal').classList.remove('active');
+}
+function showCodex(mode='character') {
+  if(!state.active || !state.world)return;
+  const pc=state.active.pc_profile||{};
+  const title=mode==='character'?state.active.pc_name:mode==='world'?state.world.title:'Adventure Journal';
+  $('codex-eyebrow').textContent=mode==='character'?'CHARACTER RECORD':mode==='world'?'WORLD ATLAS':'YOUR STORY SO FAR';
+  $('codex-title').textContent=title;
+  $('codex-overlay').classList.remove('hidden');$('codex-overlay').setAttribute('aria-hidden','false');
+  for(const x of ['character','world-lore','journal'])$('nav-'+x).classList.toggle('active',x===(mode==='world'?'world-lore':mode));
+  if(mode==='character') renderCodexCharacter();
+  else if(mode==='world')renderCodexWorld();
+  else renderCodexJournal();
+  $('codex-close').focus();
+}
+function paragraph(value){return escapeHtml(value||'Not recorded yet.').replace(/\n/g,'<br>')}
+function codexSection(title,content){return `<section class="codex-section"><h3>${escapeHtml(title)}</h3><div class="codex-prose">${content}</div></section>`}
+function renderCodexCharacter(){
+  const pc=state.active.pc_profile||{};
+  const tabs=[['sheet','Character Sheet'],['inventory','Inventory'],['spellbook','Spellbook'],['progression','Progression'],['relationships','Relationships'],['memories','Memories']];
+  $('codex-body').innerHTML=`<div class="codex-character-hero">
+    <div class="codex-portrait"><img id="codex-portrait-image" class="hidden" alt="Portrait of ${escapeHtml(state.active.pc_name)}"><span id="codex-portrait-placeholder">✦</span></div>
+    <div class="codex-profile-heading"><h2>${escapeHtml(state.active.pc_name)}</h2><p>${escapeHtml([pc.level?'Level '+pc.level:'',pc.species,pc.role,pc.alignment].filter(Boolean).join(' · '))}</p><p class="codex-profile-summary">${escapeHtml((pc.appearance||pc.personality||'Your story begins here.').slice(0,320))}</p></div>
+    <div class="codex-art-actions"><label class="button secondary small upload-label">Upload image<input type="file" id="codex-upload" accept="image/png,image/jpeg,image/webp" hidden></label><button class="button ghost small" id="codex-generate-portrait">✧ Generate portrait</button><button class="button ghost small" id="codex-edit">✎ Edit character</button><p class="muted note" id="codex-art-status">Portraits are saved on this computer.</p></div>
+  </div><div class="codex-tabs" role="tablist">${tabs.map(([key,label])=>`<button class="codex-tab ${state.codexTab===key?'active':''}" data-codex-tab="${key}" role="tab" aria-selected="${state.codexTab===key}">${label}</button>`).join('')}</div><div id="codex-tab-content" class="codex-tab-content"></div>`;
+  renderCodexTab();loadPortraitInCodex();
+  document.querySelectorAll('[data-codex-tab]').forEach(b=>b.onclick=()=>{state.codexTab=b.dataset.codexTab;renderCodexTab();document.querySelectorAll('[data-codex-tab]').forEach(x=>{x.classList.toggle('active',x.dataset.codexTab===state.codexTab);x.setAttribute('aria-selected',String(x.dataset.codexTab===state.codexTab))})});
+  $('codex-edit').onclick=()=>showEditCharacterModal();
+  $('codex-upload').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{$('codex-art-status').textContent='Saving portrait…';await uploadPortrait(state.active.id,file);loadPortraitInCodex();renderPortraitThumb(state.active.id);$('codex-art-status').textContent='Portrait saved.';}catch(err){$('codex-art-status').textContent=err.message;toast(err.message,true)}};
+  $('codex-generate-portrait').onclick=()=>generateArt('portrait',true);
+}
+function renderCodexTab(){
+  const pc=state.active.pc_profile||{},s=state.active.state||{};
+  const rows=[['Species',pc.species],['Role',pc.role],['Alignment',pc.alignment],['Pronouns',pc.pronouns],['Titles',pc.aliases],['Level',pc.level],['Armour',pc.armor_class],['Hit points (maximum)',pc.max_hp]];
+  const t=state.codexTab;let html='';
+  if(t==='sheet')html=`<div class="codex-grid">${codexSection('Details',rows.filter(x=>x[1]).map(([k,v])=>`<div class="codex-data"><span>${k}</span><strong>${escapeHtml(v)}</strong></div>`).join('')||'<p class="muted">No details recorded.</p>')}${codexSection('Appearance',paragraph(pc.appearance))}${codexSection('Personality & Mannerisms',paragraph([pc.personality,pc.mannerisms].filter(Boolean).join('\n\n')))}${codexSection('History & Motivations',paragraph([pc.background,pc.motivation,pc.weaknesses].filter(Boolean).join('\n\n')))}</div>`;
+  else if(t==='inventory')html=codexSection('Inventory',(s.inventory||[]).length?`<ul>${s.inventory.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ul>`:'<p class="muted">Your inventory is empty.</p>');
+  else if(t==='spellbook')html=codexSection('Abilities and Spells',(pc.abilities||[]).length?`<div class="codex-spells">${pc.abilities.map(v=>`<div class="codex-spell">✧ ${escapeHtml(v)}</div>`).join('')}</div>`:'<p class="muted">No spells listed. You can still attempt any action.</p>');
+  else if(t==='progression')html=codexSection('Character progression',`<p>Level: ${escapeHtml(pc.level||'Not specified')}</p><p class="muted">There is no automatic XP or levelling system yet. Your character changes through the story.</p>`);
+  else if(t==='relationships')html=codexSection('Relationships', '<p class="muted">Automatic relationship tracking is not implemented yet. The Game Master may still remember relationships described in your narrative.</p>');
+  else html=codexSection('Memories',(s.journal||[]).length?`<ol>${s.journal.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ol>`:'<p class="muted">No memories recorded yet.</p>');
+  $('codex-tab-content').innerHTML=html;
+}
+function renderCodexWorld(){
+  const w=state.world;
+  $('codex-body').innerHTML=`<div class="codex-world-header"><h2>${escapeHtml(w.title)}</h2><p>${escapeHtml(w.description||'Explore this world through your story.')}</p><span class="muted">Created by ${escapeHtml(w.author||'Unknown')}</span></div><div class="codex-grid">${(w.sections||[]).slice(0,150).map(e=>codexSection(e.title||'Lore',`<div class="eyebrow">${escapeHtml(e.kind||'lore')}</div>${paragraph((e.content||'').slice(0,10000))}`)).join('')}</div>`;
+}
+function renderCodexJournal(){
+  const journal=state.active.state?.journal||[];
+  $('codex-body').innerHTML=codexSection('Story developments',journal.length?`<ol class="codex-journal">${journal.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ol>`:'<p class="muted">Your adventure is just beginning.</p>');
+}
+async function uploadPortrait(id,file){
+  if(file.size>8*1024*1024)throw new Error('Portrait must be smaller than 8 MB');
+  if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Choose PNG, JPEG or WebP');
+  const response=await fetch('/api/campaigns/'+encodeURIComponent(id)+'/portrait',{method:'POST',headers:{'Content-Type':file.type},body:file});
+  let data;try{data=await response.json()}catch{throw new Error('Could not upload image')}
+  if(!response.ok)throw new Error(data.error||'Image upload failed');
+  state.portraitRev=Date.now();return data;
+}
+function loadPortraitInCodex(){
+  const img=$('codex-portrait-image');if(!img||!state.active)return;
+  img.onload=()=>{img.classList.remove('hidden');$('codex-portrait-placeholder').classList.add('hidden')};
+  img.onerror=()=>{img.classList.add('hidden');$('codex-portrait-placeholder').classList.remove('hidden')};
+  img.src='/api/artwork/portraits/'+encodeURIComponent(state.active.id)+'?v='+state.portraitRev;
+}
+function renderPortraitThumb(id){
+  const img=$('side-character-image');if(!img)return;
+  img.onload=()=>{img.classList.remove('hidden');$('character-emblem-symbol').classList.add('hidden')};
+  img.onerror=()=>{img.classList.add('hidden');$('character-emblem-symbol').classList.remove('hidden')};
+  img.src='/api/artwork/portraits/'+encodeURIComponent(id)+'?v='+state.portraitRev;
+}
+let artPolling=null;
+function stopArtPolling(){if(artPolling){clearInterval(artPolling);artPolling=null}}
+function showSceneArt(data){
+  if(!data||!state.active)return;
+  if((data.location||'Unknown')!==state.sceneLocation)return;
+  state.sceneRecord=data;
+  const img=$('scene-image'),art=$('scene-art-placeholder');
+  if(data.url){img.onload=()=>{img.classList.remove('hidden');art.classList.add('hidden')};img.onerror=()=>{img.classList.add('hidden');art.classList.remove('hidden')};img.src=data.url+'?v='+encodeURIComponent(data.key||'')+(data.job?.status==='ready'?'&stamp='+Date.now():'')}
+  else {img.removeAttribute('src');img.classList.add('hidden');art.classList.remove('hidden')}
+  $('scene-lock').textContent=data.locked?'♢ Unlock':'♧ Lock';$('scene-lock').disabled=!data.url;
+  $('scene-refresh').disabled=!data.url||data.locked;
+  const job=data.job;
+  $('scene-art-status').textContent=job?.status==='generating'?'Generating scene artwork in ComfyUI…':job?.status==='failed'?'Art failed: '+job.error:data.locked?'Scene image locked':data.url?'Cached illustration for this location.':'No illustration yet. Generate one using ComfyUI.';
+}
+async function refreshSceneArtwork(auto=false){
+  if(!state.active)return;
+  const campaignId=state.active.id,loc=state.sceneLocation;
+  const data=await request('/api/artwork/scene?campaign_id='+encodeURIComponent(campaignId));
+  if(campaignId!==state.active?.id||loc!==state.sceneLocation)return;
+  showSceneArt(data.scene);
+  if(data.scene?.job?.status==='generating')startArtPolling('scene');
+  else if(auto&&!data.scene?.url&&!data.scene?.job){
+    const status=await getArtStatus();
+    if(status.available && status.checkpoints.length && state.active?.id===campaignId && loc===state.sceneLocation)await generateArt('scene',false,true);
+  }
+}
+async function getArtStatus(force=false){
+  if(!force && state.artStatus && Date.now()-state.artStatus.checked<30000)return state.artStatus;
+  const status=await request('/api/artwork/status');state.artStatus={...status,checked:Date.now()};return state.artStatus;
+}
+async function chooseArtCheckpoint(){
+  const status=await getArtStatus(true);
+  if(!status.available||!status.checkpoints.length)throw new Error('ComfyUI is not ready. Start local ComfyUI with an image-generation checkpoint; see README.');
+  const saved=settingsGet('comfy_checkpoint','');
+  const chosen=status.checkpoints.includes(saved)?saved:status.checkpoints[0];
+  settingsPut('comfy_checkpoint',chosen);
+  return chosen;
+}
+async function generateArt(kind,refresh=false,silent=false){
+  if(!state.active)return;
+  try{
+    const checkpoint=await chooseArtCheckpoint();
+    const cid=state.active.id;
+    const result=await request(kind==='scene'?'/api/artwork/generate-scene':'/api/campaigns/'+cid+'/portrait/generate',
+      {method:'POST',body:kind==='scene'?{campaign_id:cid,checkpoint,refresh}:{checkpoint}});
+    if(kind==='scene'){if(!silent)toast('Generating location art in the background');await refreshSceneArtwork();startArtPolling('scene')}
+    else {if($('codex-art-status'))$('codex-art-status').textContent='Generating portrait in ComfyUI…';startArtPolling('portrait');if(!silent)toast('Generating portrait in the background')}
+  }catch(err){if(!silent)toast(err.message,true);if($('scene-art-status')&&kind==='scene')$('scene-art-status').textContent=err.message}
+}
+function startArtPolling(kind){
+  stopArtPolling();let tries=0;
+  artPolling=setInterval(async()=>{
+    try{
+      if(!state.active || ++tries>95){stopArtPolling();return}
+      if(kind==='scene'){
+        const data=await request('/api/artwork/scene?campaign_id='+encodeURIComponent(state.active.id));showSceneArt(data.scene);
+        if(data.scene.job?.status!=='generating')stopArtPolling();
+      }else{
+        const job=await request('/api/artwork/job?kind=portrait&campaign_id='+encodeURIComponent(state.active.id));
+        if(job.job?.status!=='generating'){
+          stopArtPolling();if(job.job?.status==='ready'){state.portraitRev=Date.now();loadPortraitInCodex();renderPortraitThumb(state.active.id)}
+          if($('codex-art-status'))$('codex-art-status').textContent=job.job?.status==='failed'?job.job.error:'Portrait ready.';
+        }
+      }
+    }catch{stopArtPolling()}
+  },3000);
+}
+async function toggleSceneLock(){
+  if(!state.active||!state.sceneRecord?.url)return;
+  try{const response=await request('/api/artwork/lock-scene',{method:'POST',body:{campaign_id:state.active.id,locked:!state.sceneRecord.locked}});showSceneArt(response.scene)}catch(err){toast(err.message,true)}
+}
+
 const neuralVoices = [
   ['bm_george','George · British male'],['bm_lewis','Lewis · British male'],
   ['bf_emma','Emma · British female'],['bf_isabella','Isabella · British female'],
@@ -560,11 +715,11 @@ $('nav-worlds').onclick=toLibrary;
 $('brand-home').onclick=toLibrary;
 $('nav-story').onclick=openAdventureOrNotice;
 $('nav-adventures').onclick=()=>{$('campaign-links').classList.toggle('hidden');};
-$('nav-character').onclick=()=>{if(!state.active) return openAdventureOrNotice();setDetailTab('character');revealDetailsOnMobile();};
-$('nav-world-lore').onclick=()=>{if(!state.active)return toLibrary();setDetailTab('world');revealDetailsOnMobile();};
-$('nav-journal').onclick=()=>{if(!state.active)return openAdventureOrNotice();setDetailTab('scene');revealDetailsOnMobile();$('journal-card').scrollIntoView({block:'nearest',behavior:'smooth'});};
+$('nav-character').onclick=()=>{if(!state.active) return openAdventureOrNotice();showCodex('character');};
+$('nav-world-lore').onclick=()=>{if(!state.active)return toLibrary();showCodex('world');};
+$('nav-journal').onclick=()=>{if(!state.active)return openAdventureOrNotice();showCodex('journal');};
 $('nav-settings').onclick=()=>{if(!state.active)return toast('Open an adventure to configure its narrator.');revealDetailsOnMobile();$('voice-settings').open=true;$('voice-settings').scrollIntoView({block:'nearest',behavior:'smooth'});};
-$('composer-abilities').onclick=showAbilities;
+$('composer-abilities').onclick=()=>{if(!state.active)return;state.codexTab='spellbook';showCodex('character');};
 $('show-details-mobile').onclick=()=>document.querySelector('.details').classList.toggle('show-on-mobile');
 for(const name of ['scene','character','world']) $('select-'+name).onclick=()=>setDetailTab(name);
 // Close the rail's campaign picker when clicking elsewhere.
@@ -577,6 +732,12 @@ $('send-action').onclick=()=>sendAction();
 $('action').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();sendAction()}});
 $('replay').onclick=()=>{if(state.lastNarration)speak(state.lastNarration)};
 $('edit-character').onclick=showEditCharacterModal;
+$('codex-close').onclick=closeCodex;
+$('codex-overlay').onclick=e=>{if(e.target===$('codex-overlay'))closeCodex()};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeCodex();closeModal()}});
+$('scene-generate').onclick=()=>generateArt('scene',false);
+$('scene-refresh').onclick=()=>generateArt('scene',true);
+$('scene-lock').onclick=toggleSceneLock;
 $('pause-voice').onclick=toggleSpeechPause;
 $('stop-voice-top').onclick=stopSpeech;
 $('stop-voice').onclick=stopSpeech;

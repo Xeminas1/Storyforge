@@ -1,3 +1,33 @@
+# Storyforge v0.6.0 — character codex & location artwork
+
+## What's new
+
+- The **left Character, World and Journal icons** open large overlays over the story instead of merely switching the right sidebar. Character view includes a large portrait, Character Sheet, Inventory, Spellbook, Progression, Relationships and Memories tabs. The sidebar tabs remain compact, contextual summaries.
+- **Character image**: upload PNG, JPEG or WebP (max 8MB) in the character editor or full character view. Image persists in `data/artwork/portraits`, including through code updates. The portrait can also be generated with an installed ComfyUI image-generation checkpoint.
+- **Scene image**: an illustration can be generated for the location under **You are here**, saved locally in `data/artwork/scenes`, and reused for the same world/location. Buttons permit regenerating from latest GM narration and locking the image. Generation is asynchronous.
+- The app automatically requests scene art on entering a new location **only if a local ComfyUI with a checkpoint is already available**. Otherwise you get a graceful placeholder and a manual generate button.
+
+## Local image generation setup (separate from Kokoro)
+
+**Kokoro is for speech only.** To generate artwork, install and run **ComfyUI** separately on the machine hosting Storyforge, using an image checkpoint compatible with the standard CLIP / checkpoint / sampler workflow. By default Storyforge connects to `http://127.0.0.1:8188`. Put one or more checkpoints under `ComfyUI/models/checkpoints` and confirm ComfyUI sees them. You can set `STORYFORGE_COMFY_PORT` before launching Storyforge to use another local port; remote addresses are deliberately unsupported. No ComfyUI credentials, public APIs or image-generation subscription are required; a GPU-compatible ComfyUI install may need additional setup.
+
+**Note on performance:** this calls ComfyUI with standard 1024×576 location and 640×896 portrait latent dimensions. Some older SD1.5 checkpoints may work better at 512px, and some newer model families (e.g. Flux) require different node graphs and will not work with this initial generator. On your RTX 5080 the GPU resources and first-model load may make image generation take a while; speaking through Kokoro and running Ollama also share system resources. Jobs stay in the background but performance needs real-world validation.
+
+## Release / preservation
+
+- The updater includes `artwork.py` in its permitted source-file manifest.
+- All generated and uploaded images live under the existing `data` directory **outside release packages**, just like the SQLite database.
+- Do not delete your `data` folder; update through the existing **Updates → Check & install latest release now** button after this version is published to GitHub.
+- The Fables screenshots informed the *interaction pattern* (large overlays versus contextual panels); Storyforge uses its own artwork, markup, colours, and code. We cannot inspect every signed-in Fables menu without access to that live session, so this release should not be described as a pixel-identical reimplementation.
+
+## Known limitations
+
+- Character **Relationships** and **Progression** tabs display honest placeholder information rather than fictitious game-state tracking; adding complete engines for these is a separate development task.
+- Portrait generation requires ComfyUI locally. Portrait upload works without ComfyUI.
+- Existing creator-provided world imports are unchanged. Storyforge cannot directly scrape third-party community-world URLs.
+
+---
+
 # Storyforge v0.5.1 — one-click GitHub updates
 
 Version 0.5.1 adds **Check & install latest release now** to the Updates dialog. Click it from the Storyforge browser running on your PC: it looks up the newest official `Xeminas1/Storyforge` release, verifies GitHub's release digest and the ZIP's internal checksums, backs up campaign data, installs and restarts immediately—**no waiting 10 minutes**. It works even when unattended updates are disabled. It does not bypass checksum verification, the publisher restrictions, or local-only browser checks. Existing automatic updates still wait for idle time. Do not close the PowerShell window running the server.

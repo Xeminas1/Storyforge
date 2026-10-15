@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import engine
+import artwork
 import narration
 import updater
 
@@ -21,7 +22,7 @@ PORT = int(os.getenv("STORYFORGE_PORT", "8787"))
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Storyforge/0.5.0"
+    server_version = "Storyforge/0.6.0"
 
     def _send(self, status: int, data: bytes, mime: str) -> None:
         self.send_response(status)
@@ -61,6 +62,35 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply({"ok": True, "version": updater.VERSION, "model": "local Ollama"})
                     if path == "/api/updates":
                         return self.reply(updater.get_status(ROOT))
+                    if path == "/api/artwork/status":
+                        return self.reply(artwork.comfy_status())
+                    if path == '/api/artwork/job':
+                        args = parse_qs(parsed.query)
+                        campaign = engine.get_campaign(con,args.get('campaign_id',[''])[0])
+                        return self.reply({'job':artwork.job_status(args.get('kind',['portrait'])[0],campaign)})
+                    if path == "/api/artwork/scene":
+                        cid = parse_qs(parsed.query).get('campaign_id', [''])[0]
+                        campaign = engine.get_campaign(con, cid)
+                        scene = artwork.scene_record(con, campaign['world_id'],
+                            campaign['state'].get('location','Unknown'), DB_PATH)
+                        return self.reply({'scene':scene})
+                    if path.startswith('/api/artwork/portraits/'):
+                        cid = path.removeprefix('/api/artwork/portraits/')
+                        campaign = engine.get_campaign(con, cid)
+                        file = artwork.character_file(DB_PATH, campaign['id'])
+                        if file is None: return self.reply({'error':'No character image'},404)
+                        return self._send(200, file.read_bytes(),
+                              {'png':'image/png','jpg':'image/jpeg','webp':'image/webp'}[file.suffix[1:]])
+                    if path.startswith('/api/artwork/scenes/'):
+                        parts = path.split('/')
+                        if len(parts) != 6: return self.reply({'error':'Not found'},404)
+                        world_id,key = parts[4],parts[5]
+                        if not __import__('re').fullmatch(r'[a-f0-9]{32}', key):
+                            return self.reply({'error':'Bad scene id'},400)
+                        engine.get_world(con,world_id)
+                        file=artwork.scene_file(con,world_id,key,DB_PATH)
+                        if not file: return self.reply({'error':'Scene image not found'},404)
+                        return self._send(200,file.read_bytes(),'image/png')
                     if path == "/api/tts/status":
                         return self.reply(narration.status())
                     if path == "/api/models":
@@ -161,6 +191,34 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply({"error": "Not found"}, 404)
             self.server.release_watcher.user_active()
             with engine.open_db(DB_PATH) as con:
+                if path.startswith('/api/campaigns/') and path.endswith('/portrait'):
+                    parts=path.split('/')
+                    if len(parts)!=5: return self.reply({'error':'Not found'},404)
+                    campaign=engine.get_campaign(con,parts[3])
+                    raw=self.read_body(artwork.MAX_IMAGE_BYTES)
+                    artwork.save_portrait(DB_PATH,campaign['id'],raw)
+                    return self.reply({'ok':True,'url':'/api/artwork/portraits/'+campaign['id']})
+                if path.startswith('/api/campaigns/') and path.endswith('/portrait/generate'):
+                    parts=path.split('/')
+                    if len(parts)!=6: return self.reply({'error':'Not found'},404)
+                    campaign=engine.get_campaign(con,parts[3]);world=engine.get_world(con,campaign['world_id'])
+                    info=self.json_body()
+                    return self.reply(artwork.start_job(DB_PATH,'portrait',campaign,world,
+                        str(info.get('checkpoint','')),refresh=True),202)
+                if path == '/api/artwork/generate-scene':
+                    info=self.json_body()
+                    campaign=engine.get_campaign(con,str(info.get('campaign_id','')))
+                    world=engine.get_world(con,campaign['world_id'])
+                    messages=engine.get_messages(con,campaign['id'])
+                    last=next((m['content'] for m in reversed(messages) if m['role']=='gm'),'')
+                    return self.reply(artwork.start_job(DB_PATH,'scene',campaign,world,
+                        str(info.get('checkpoint','')),excerpt=last,refresh=bool(info.get('refresh'))),202)
+                if path == '/api/artwork/lock-scene':
+                    info=self.json_body()
+                    campaign=engine.get_campaign(con,str(info.get('campaign_id','')))
+                    if type(info.get('locked')) is not bool: raise ValueError('locked must be true or false')
+                    return self.reply({'scene':artwork.lock_scene(con,campaign['world_id'],
+                        campaign['state'].get('location','Unknown'),info['locked'],DB_PATH)})
                 if path == "/api/worlds":
                     return self.reply({"world": engine.make_world(con, self.json_body())}, 201)
                 if path == "/api/worlds/import-zip":

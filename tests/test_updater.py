@@ -16,7 +16,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import updater
 
 
-def make_zip(files: dict[str, bytes], version='0.5.2', checksums=None):
+def make_zip(files: dict[str, bytes], version='0.6.1', checksums=None):
     file_hashes = {p: hashlib.sha256(data).hexdigest() for p, data in files.items()}
     if checksums is not None:
         file_hashes = checksums
@@ -42,7 +42,7 @@ class UpdaterTests(unittest.TestCase):
 
     def test_valid_release_stages_and_checksums(self):
         info = updater.stage_package(self.root, make_zip(RELEASE_FILES))
-        self.assertEqual(info['version'], '0.5.2')
+        self.assertEqual(info['version'], '0.6.1')
         self.assertEqual(info['file_count'], 4)
         self.assertFalse(info['contains_database'])
         stage = self.root / 'data' / 'updates' / 'staging' / info['token']

@@ -13,7 +13,7 @@ import updater
 def build(version: str, output: Path) -> Path:
     if version != updater.VERSION:
         raise ValueError(f'Updater code says {updater.VERSION}; refused manifest version {version}')
-    paths = ['server.py', 'engine.py', 'narration.py', 'updater.py', 'README.md']
+    paths = ['server.py', 'engine.py', 'narration.py', 'artwork.py', 'updater.py', 'README.md']
     paths += [p.relative_to(ROOT).as_posix() for folder in ('static', 'tests', 'tools') for p in (ROOT/folder).iterdir()
               if p.is_file() and updater.installable(p.relative_to(ROOT).as_posix())]
     paths = sorted(set(paths))
