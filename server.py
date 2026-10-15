@@ -23,7 +23,7 @@ PORT = int(os.getenv("STORYFORGE_PORT", "8787"))
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Storyforge/0.10.0"
+    server_version = "Storyforge/0.11.0"
 
     def _send(self, status: int, data: bytes, mime: str) -> None:
         self.send_response(status)
@@ -133,6 +133,11 @@ class Handler(BaseHTTPRequestHandler):
                         campaign_id = parts[3]
                         if len(parts) == 5 and parts[4] == "messages":
                             return self.reply({"messages": engine.get_messages(con, campaign_id)})
+                        if len(parts) == 5 and parts[4] == 'feedback':
+                            engine.get_campaign(con,campaign_id)
+                            entries=[dict(r) for r in con.execute("""SELECT message_id,message_role,operation,reason,created_at
+                                  FROM gm_feedback WHERE campaign_id=? ORDER BY id DESC LIMIT 100""",(campaign_id,))]
+                            return self.reply({'feedback':entries})
                         if len(parts) == 4:
                             return self.reply({"campaign": engine.get_campaign(con, campaign_id)})
             elif path in ("/", "/index.html", "/styles.css", "/app.js"):
@@ -314,6 +319,19 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, audio, "audio/mpeg")
                 if path == "/api/campaigns":
                     return self.reply({"campaign": engine.new_campaign(con, self.json_body())}, 201)
+                if path.startswith('/api/campaigns/') and '/messages/' in path:
+                    parts=path.split('/')
+                    if len(parts)!=7 or parts[2]!='campaigns' or parts[4]!='messages' or parts[6] not in ('retry','delete'):
+                        return self.reply({'error':'Not found'},404)
+                    if not parts[5].isdigit():raise ValueError('Invalid message ID')
+                    message_id=int(parts[5]);payload=self.json_body()
+                    if parts[6]=='delete':
+                        if payload.get('confirm')!='REWIND':raise ValueError('Deletion requires confirmation')
+                        return self.reply(engine.delete_message(con,parts[3],message_id,
+                                    reason=str(payload.get('feedback',''))))
+                    return self.reply(engine.retry_message(con,parts[3],message_id,
+                            feedback=str(payload.get('feedback','')),
+                            model=str(payload.get('model','qwen3:8b'))))
                 if path.startswith("/api/campaigns/") and path.endswith("/turn"):
                     parts = path.split("/")
                     if len(parts) != 5:

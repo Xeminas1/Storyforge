@@ -318,3 +318,14 @@ html,body{height:100%;scrollbar-color:#40505c #0e161e}
 .lore-research-item a{color:#d4bd8f}.lore-research-item a:hover{text-decoration:underline}
 .research-world{margin-top:8px;width:100%}
 @media(max-width:700px){.modal-box:has(#lore-search){padding:15px}.lore-result-list{max-height:33vh}}
+
+/* v0.11.0 — each turn can be corrected without making the GM talk for the player. */
+.story-message-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;font:12px system-ui,sans-serif}
+.story-message-tools button{border:1px solid #4b5961;background:#111c24b0;border-radius:6px;padding:7px 10px;color:#dec08e;cursor:pointer;font:12px system-ui,sans-serif}
+.story-message-tools button:hover,.story-message-tools button:focus-visible{background:#283744;border-color:#d4a55e;outline-offset:2px}
+.story-message-tools button.danger{color:#edacac;border-color:#684a4a}
+.story-message-tools button.danger:hover{background:#492c34}
+.rewind-warning{padding:11px 13px;border:1px solid #8f693f;border-radius:7px;background:#422d1d;color:#f1d6a5;font:12px/1.55 system-ui,sans-serif}
+.correction-excerpt{max-height:150px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#0c1720;border:1px solid #334653;border-radius:8px;padding:13px;color:#d9dfd6;font:13px/1.6 system-ui,sans-serif}
+.story-confirm-actions{display:flex;justify-content:flex-end;gap:10px;margin:15px 0}
+@media(max-width:700px){.story-message-tools{gap:5px}.story-message-tools button{font-size:11px;padding:6px 8px}}

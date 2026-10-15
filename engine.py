@@ -76,7 +76,21 @@ def open_db(db_path: str | Path) -> sqlite3.Connection:
         role TEXT NOT NULL CHECK (role IN ('player', 'gm')),
         content TEXT NOT NULL, created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS turn_checkpoints (
+        gm_message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+        state_before TEXT NOT NULL, state_after TEXT NOT NULL,
+        source_action TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS gm_feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        message_id INTEGER NOT NULL, message_role TEXT NOT NULL,
+        operation TEXT NOT NULL, reason TEXT NOT NULL,
+        original_text TEXT NOT NULL, created_at TEXT NOT NULL
+      );
     """)
+    if 'revision' not in {r['name'] for r in con.execute('PRAGMA table_info(campaigns)')}:
+        con.execute('ALTER TABLE campaigns ADD COLUMN revision INTEGER NOT NULL DEFAULT 0')
     if 'character_id' not in {r['name'] for r in con.execute('PRAGMA table_info(campaigns)')}:
         con.execute('ALTER TABLE campaigns ADD COLUMN character_id TEXT')
     # Existing saves migrate once: every earlier campaign gets a reusable character,
@@ -469,7 +483,11 @@ def list_campaigns(con: sqlite3.Connection) -> list[dict]:
 
 def get_messages(con: sqlite3.Connection, campaign_id: str, limit: int = 200) -> list[dict]:
     get_campaign(con, campaign_id)
-    rows = con.execute("SELECT id,role,content,created_at FROM (SELECT * FROM messages WHERE campaign_id=? ORDER BY id DESC LIMIT ?) ORDER BY id", (campaign_id, min(limit, 500))).fetchall()
+    rows = con.execute("""SELECT m.id,m.role,m.content,m.created_at,
+           CASE WHEN t.gm_message_id IS NOT NULL THEN 1 ELSE 0 END AS has_checkpoint
+           FROM (SELECT * FROM messages WHERE campaign_id=? ORDER BY id DESC LIMIT ?) m
+           LEFT JOIN turn_checkpoints t ON t.gm_message_id=m.id ORDER BY m.id""",
+           (campaign_id, min(limit, 500))).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -686,51 +704,170 @@ def player_agency_violations(narration: str, pc_name: str, action: str) -> list[
     return findings
 
 
-def play_turn(con: sqlite3.Connection, campaign_id: str, action: str, *, model: str = "qwen3:8b", chat=ollama_chat) -> dict:
-    action = clean(action, 2500)
-    if not action:
-        raise ValueError("Enter an action")
-    campaign = get_campaign(con, campaign_id)
-    world = get_world(con, campaign["world_id"])
-    prior = get_messages(con, campaign_id, 18)
-    char = campaign["pc_profile"]
-    system = GAME_MASTER_POLICY + "\nCHARACTER (player-controlled):\n" + json.dumps({"name": campaign["pc_name"], **char}, ensure_ascii=False)
-    spells = char.get('ability_details') or ability_records(char,campaign.get('character_id') or campaign_id)
+def gm_feedback_guidance(con: sqlite3.Connection, campaign_id: str) -> str:
+    """Previous local corrections become context, not model-weight training."""
+    rows = con.execute("""SELECT reason FROM gm_feedback WHERE campaign_id=? AND reason<>''
+                          ORDER BY id DESC LIMIT 3""", (campaign_id,)).fetchall()
+    if not rows: return ''
+    return '\nRECENT PLAYER CORRECTIONS (respect these when consistent with established lore):\n' + '\n'.join(
+        '- ' + clean(r['reason'], 500) for r in reversed(rows))
+
+
+def _generate_turn(con: sqlite3.Connection, campaign: dict, world: dict, action: str,
+                   prior: list[dict], base_state: dict, *, feedback: str = '',
+                   model: str = 'qwen3:8b', chat=ollama_chat) -> tuple[str,dict]:
+    char = campaign['pc_profile']
+    system = GAME_MASTER_POLICY + '\nCHARACTER (player-controlled):\n' + json.dumps(
+        {'name': campaign['pc_name'], **char}, ensure_ascii=False)
+    spells = char.get('ability_details') or ability_records(char,campaign.get('character_id') or campaign['id'])
     if spells:
         matched=[entry for entry in spells if entry['name'].casefold() in action.casefold()]
         selected=matched + [entry for entry in spells if entry not in matched]
-        system += "\nCANONICAL CHARACTER SPELLS & ABILITIES (effect, range, costs and limits; do not invent extra effects):\n"
+        system += '\nCANONICAL CHARACTER SPELLS & ABILITIES (do not invent effects):\n'
         system += json.dumps(selected,ensure_ascii=False)[:8500]
-    system += "\nCANONICAL WORLD INFORMATION:\n" + pick_sections(world["sections"], action + " " + campaign["state"]["location"])
-    system += "\nESTABLISHED CAMPAIGN STATE:\n" + json.dumps(campaign["state"], ensure_ascii=False)[:5000]
-    history = [{"role": "assistant" if m["role"] == "gm" else "user", "content": m["content"]} for m in prior]
-    prompt = "Open the campaign with a scene and an immediate story hook. Do not decide what I do." if action == "__START__" else action
-    messages = [{"role": "system", "content": system}, *history, {"role": "user", "content": prompt}]
-    narration='';changes={}
+    system += '\nCANONICAL WORLD INFORMATION:\n' + pick_sections(world['sections'], action + ' ' + base_state.get('location','Unknown'))
+    system += '\nESTABLISHED CAMPAIGN STATE:\n' + json.dumps(base_state,ensure_ascii=False)[:5000]
+    system += gm_feedback_guidance(con,campaign['id'])
+    feedback = clean(feedback, 750)
+    if feedback:
+        system += ('\nIMMEDIATE PLAYER CORRECTION FOR THIS RETRY (fix this specific issue; do not narrate '
+                   'the feedback as part of the fiction):\n' + feedback)
+    history=[{'role':'assistant' if m['role']=='gm' else 'user','content':m['content']} for m in prior]
+    prompt='Open the campaign with a scene and an immediate story hook. Do not decide what I do.' if action=='__START__' else action
+    messages=[{'role':'system','content':system},*history,{'role':'user','content':prompt}]
     for attempt in range(3):
         raw=chat(messages,model)
-        try:
-            narration, changes = parse_gm_response(raw)
+        try:narration,changes=parse_gm_response(raw)
         except ValueError as exc:
-            if attempt == 2: raise ValueError('The Game Master returned invalid text three times. Your action was not saved; retry it.') from exc
-            messages.append({'role':'assistant','content':str(raw)[:3500]})
-            messages.append({'role':'user','content':'Your response format was invalid. Return only a valid JSON object with narration and state_updates.'})
+            if attempt==2:raise ValueError('The Game Master returned invalid text three times. Nothing was saved; retry.') from exc
+            messages.extend([{'role':'assistant','content':str(raw)[:3500]},
+                {'role':'user','content':'Your response format was invalid. Return only a JSON object with narration and state_updates.'}])
             continue
         violations=player_agency_violations(narration,campaign['pc_name'],action)
-        if not violations:break
-        if attempt == 2:
-            raise ValueError('The Game Master repeatedly tried to speak or act for your character. Nothing was saved. Please retry your action.')
-        messages.append({'role':'assistant','content':str(raw)[:3500]})
-        messages.append({'role':'user','content':'REWRITE THIS TURN. You narrated the player character acting/speaking without permission ('+'; '.join(violations)+'). The player only submitted: '+action+'. Preserve NPC reactions, but REMOVE ALL invented PC dialogue, choices, and voluntary actions. Return valid JSON only.'})
-    state = apply_patch(campaign["state"], changes, action)
-    narration = scene_heading(narration, state, world["title"])
-    stamp = now()
+        if not violations:
+            state=apply_patch(base_state,changes,action)
+            return scene_heading(narration,state,world['title']),state
+        if attempt==2:raise ValueError('The GM repeatedly acted or spoke for your character. Nothing was saved.')
+        messages.extend([{'role':'assistant','content':str(raw)[:3500]},
+          {'role':'user','content':'REWRITE THIS TURN. You spoke/acted for the player ('+'; '.join(violations)+'). The player only submitted: '+action+'. Keep NPC actions, remove invented PC dialogue and decisions. Return valid JSON.'}])
+    raise ValueError('Game Master response failed; nothing was saved.')
+
+
+def _revision_update(con: sqlite3.Connection, campaign_id: str, revision: int, state: dict) -> None:
+    updated=con.execute('UPDATE campaigns SET state_json=?,updated_at=?,revision=revision+1 WHERE id=? AND revision=?',
+       (json.dumps(state),now(),campaign_id,revision))
+    if updated.rowcount!=1:
+        raise ValueError('The campaign changed during generation. No reply was saved; please retry.')
+
+
+def play_turn(con: sqlite3.Connection, campaign_id: str, action: str, *, model: str='qwen3:8b', chat=ollama_chat) -> dict:
+    action=clean(action,2500)
+    if not action:raise ValueError('Enter an action')
+    campaign=get_campaign(con,campaign_id)
+    world=get_world(con,campaign['world_id'])
+    prior=get_messages(con,campaign_id,18)
+    if prior and prior[-1]['role']=='player':
+        raise ValueError('Your last action has no GM response. Use Resend instead of duplicating it.')
+    base=campaign['state']
+    narration,state=_generate_turn(con,campaign,world,action,prior,base,model=model,chat=chat)
+    stamp=now()
     with con:
-        if action != "__START__":
-            con.execute("INSERT INTO messages (campaign_id,role,content,created_at) VALUES (?,?,?,?)", (campaign_id, "player", action, stamp))
-        con.execute("INSERT INTO messages (campaign_id,role,content,created_at) VALUES (?,?,?,?)", (campaign_id, "gm", narration, stamp))
-        con.execute("UPDATE campaigns SET state_json=?,updated_at=? WHERE id=?", (json.dumps(state), stamp, campaign_id))
-    return {"narration": narration, "state": state, "messages": get_messages(con, campaign_id)}
+        _revision_update(con,campaign_id,campaign['revision'],state)
+        if action!='__START__':
+            con.execute('INSERT INTO messages (campaign_id,role,content,created_at) VALUES (?,?,?,?)',
+                        (campaign_id,'player',action,stamp))
+        gm=con.execute('INSERT INTO messages (campaign_id,role,content,created_at) VALUES (?,?,?,?)',
+                       (campaign_id,'gm',narration,stamp)).lastrowid
+        con.execute('INSERT INTO turn_checkpoints VALUES (?,?,?,?)',
+                    (gm,json.dumps(base),json.dumps(state),action))
+    return {'narration':narration,'state':state,'messages':get_messages(con,campaign_id)}
+
+
+def _message_for(con: sqlite3.Connection, campaign_id: str, message_id: int) -> dict:
+    get_campaign(con,campaign_id)
+    row=con.execute('SELECT id,role,content FROM messages WHERE campaign_id=? AND id=?',
+                    (campaign_id,message_id)).fetchone()
+    if row is None:raise LookupError('Message not found in this campaign')
+    return dict(row)
+
+
+def _rewind_point(con: sqlite3.Connection, campaign: dict, message: dict) -> tuple[int,dict,str,bool]:
+    """Return first message to discard, state before its GM outcome and action.
+
+    Old releases didn't store snapshots. They can be cleaned up, but their
+    state effects cannot be reconstructed. Never claim to have undone them.
+    """
+    cid=campaign['id']; mid=message['id']
+    if message['role']=='gm':
+        target=message
+    else:
+        row=con.execute("SELECT id,role,content FROM messages WHERE campaign_id=? AND id>? ORDER BY id LIMIT 1",
+                        (cid,mid)).fetchone()
+        if row and row['role']=='gm':target=dict(row)
+        else:target=None
+    start=target['id'] if target else mid+1
+    action='__START__' if target and not con.execute(
+        "SELECT 1 FROM messages WHERE campaign_id=? AND id<? LIMIT 1",(cid,target['id'])).fetchone() else ''
+    if message['role']=='player': action=message['content']
+    elif target:
+        previous=con.execute('SELECT role,content FROM messages WHERE campaign_id=? AND id<? ORDER BY id DESC LIMIT 1',
+                             (cid,target['id'])).fetchone()
+        action=previous['content'] if previous and previous['role']=='player' else '__START__'
+    cp=con.execute('SELECT state_before FROM turn_checkpoints WHERE gm_message_id=?',(start,)).fetchone() if target else None
+    return start, json.loads(cp['state_before']) if cp else campaign['state'], action, bool(target and cp is None)
+
+
+def _record_feedback(con: sqlite3.Connection, campaign_id: str, message: dict, operation: str, reason: str) -> None:
+    con.execute('INSERT INTO gm_feedback (campaign_id,message_id,message_role,operation,reason,original_text,created_at) VALUES (?,?,?,?,?,?,?)',
+                (campaign_id,message['id'],message['role'],operation,clean(reason,750),message['content'][:12000],now()))
+
+
+def delete_message(con: sqlite3.Connection, campaign_id: str, message_id: int, *, reason: str='') -> dict:
+    campaign=get_campaign(con,campaign_id)
+    message=_message_for(con,campaign_id,message_id)
+    first,base,_,legacy=_rewind_point(con,campaign,message)
+    cut=message_id if message['role']=='player' else first
+    # Delete a GM reply but keep the player's input, allowing Resend.
+    # Deleting any historical message also removes later dependent turns.
+    with con:
+        _revision_update(con,campaign_id,campaign['revision'],base)
+        _record_feedback(con,campaign_id,message,'delete',reason)
+        con.execute('DELETE FROM messages WHERE campaign_id=? AND id>=?',(campaign_id,cut))
+    return {'messages':get_messages(con,campaign_id),'state':base,'legacy_state_warning':legacy}
+
+
+def retry_message(con: sqlite3.Connection, campaign_id: str, message_id: int, *, feedback: str='',
+                  model: str='qwen3:8b', chat=ollama_chat) -> dict:
+    campaign=get_campaign(con,campaign_id); target=_message_for(con,campaign_id,message_id)
+    start,base,action,legacy=_rewind_point(con,campaign,target)
+    # Retry a GM response OR resend a player turn without duplicating the player message.
+    if target['role']=='player':
+        previous=con.execute('SELECT id,role,content FROM messages WHERE campaign_id=? AND id<? ORDER BY id DESC LIMIT 1',
+                             (campaign_id,message_id)).fetchone()
+        if previous and previous['role']=='player':
+            raise ValueError('This player message is not a complete turn')
+        before_id=message_id
+        cut=message_id+1
+        action=target['content']
+    else:
+        previous=con.execute('SELECT id,role,content FROM messages WHERE campaign_id=? AND id<? ORDER BY id DESC LIMIT 1',
+                             (campaign_id,message_id)).fetchone()
+        before_id=previous['id'] if previous and previous['role']=='player' else message_id-1
+        cut=message_id
+    prior=[dict(r) for r in con.execute('SELECT role,content FROM messages WHERE campaign_id=? AND id<? ORDER BY id DESC LIMIT 18',
+                                      (campaign_id,before_id if action!='__START__' else cut)).fetchall()][::-1]
+    world=get_world(con,campaign['world_id'])
+    narration,new_state=_generate_turn(con,campaign,world,action,prior,base,feedback=feedback,model=model,chat=chat)
+    with con:
+        _revision_update(con,campaign_id,campaign['revision'],new_state)
+        _record_feedback(con,campaign_id,target,'retry' if target['role']=='gm' else 'resend',feedback)
+        con.execute('DELETE FROM messages WHERE campaign_id=? AND id>=?',(campaign_id,cut))
+        new_id_gm=con.execute('INSERT INTO messages (campaign_id,role,content,created_at) VALUES (?,?,?,?)',
+                              (campaign_id,'gm',narration,now())).lastrowid
+        con.execute('INSERT INTO turn_checkpoints VALUES (?,?,?,?)',
+                    (new_id_gm,json.dumps(base),json.dumps(new_state),action))
+    return {'narration':narration,'state':new_state,'messages':get_messages(con,campaign_id),
+            'legacy_state_warning':legacy}
 
 
 DEMO_WORLD = {

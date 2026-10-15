@@ -1,4 +1,4 @@
-# Storyforge v0.10.1 — v0.9.0 updater compatibility fix
+# Storyforge v0.11.0 — message correction, rewind and feedback
 
 **Hotfix:** v0.10.0 accidentally included `lore.py`, which Storyforge v0.9.0 rejects as an unapproved update path. Version 0.10.1 moves the lore functionality into the existing approved `engine.py` module and removes the incompatible file from the release archive. No saved campaigns or art are affected. The original v0.9.0 updater can now install this release without relaxing its path restrictions.
 
@@ -305,3 +305,14 @@ Use `python tools/build_release.py X.Y.Z` to generate a `Storyforge_vX.Y.Z.zip` 
 4. Return to the **Scene** tab to generate a location image, or the **Spellbook** to generate a spell image. Choose a supported checkpoint when asked. Background image jobs can be slower when Ollama and Kokoro share GPU/CPU resources.
 
 **Security:** keep ComfyUI, Storyforge, Ollama and Kokoro bound to localhost, not exposed to the public internet. Generated imagery is not included with GitHub source or release ZIPs; your images remain in `data/`.
+
+
+## Message controls (v0.11.0)
+
+Every Game Master message offers **Listen**, **Retry / Feedback**, and **Delete**. Every player action offers **Resend / Feedback** and **Delete**. Retry asks for optional correction notes and regenerates the reply from the prior conversation context. Deleting a GM reply leaves the preceding player action in the feed so you can resend it. Rewinding from an older turn removes all later dependent messages; confirm the warning before proceeding. Generation errors do not erase the original messages.
+
+New GM turns record exact before-and-after snapshots for locations, inventory, journal, time and other campaign state, so rewinds restore the state from before that turn. Earlier stories from v0.10.1 and older did **not** store snapshots. Older replies can be retried or deleted, but their original inventory/journal/location effects cannot be completely reversed: the existing state is preserved and a warning is shown. These are local database operations and the release preserves your database under `data/`.
+
+Correction feedback is saved in the local `gm_feedback` table, and the three most recent non-empty feedback instructions are supplied in later GM context. This is in-context guidance, **not** automatic model weight training or a promise of permanent learning. Player agency validation and rejection of unsupported PC actions remain enabled. A change to an older turn invalidates later story text rather than retaining contradicted consequences. Future editing of individual messages or branching timelines can be developed as a separate feature.
+
+Reference: Friends & Fables' official ACE 1.5.4 note recommends editing or retrying messages instead of arguing with the GM out-of-character; Storyforge's controls are independently implemented rather than a reproduction of proprietary code or styling.

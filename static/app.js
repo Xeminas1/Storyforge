@@ -295,11 +295,12 @@ function renderMessages() {
     state.lastNarration='';$('start-story').onclick=()=>sendAction('__START__');
   } else {
     feed.innerHTML=state.messages.map(m=>m.role==='gm'
-      ? `<div class="gm-message"><div class="message-label"><span class="gold-dot">✦</span> GAME MASTER</div><div class="narrative">${renderNarration(m.content)}</div><button class="speak-one" data-message="${m.id}" title="Read message aloud">▶ Listen</button></div>`
-      : `<div class="player-message"><div class="message-label">YOUR ACTION</div><p>${escapeHtml(m.content).replace(/\n/g,'<br>')}</p></div>`).join('');
+      ? `<div class="gm-message" data-story-message="${m.id}"><div class="message-label"><span class="gold-dot">✦</span> GAME MASTER</div><div class="narrative">${renderNarration(m.content)}</div><div class="story-message-tools"><button class="speak-one" data-message="${m.id}" title="Read message aloud">▶ Listen</button><button class="message-command" data-message="${m.id}" data-operation="retry" aria-label="Retry GM message with feedback">↻ Retry / Feedback</button><button class="message-command danger" data-message="${m.id}" data-operation="delete" aria-label="Delete GM reply from this point">✕ Delete</button></div></div>`
+      : `<div class="player-message" data-story-message="${m.id}"><div class="message-label">YOUR ACTION</div><p>${escapeHtml(m.content).replace(/\n/g,'<br>')}</p><div class="story-message-tools"><button class="message-command" data-message="${m.id}" data-operation="retry" aria-label="Resend this player action">↻ Resend / Feedback</button><button class="message-command danger" data-message="${m.id}" data-operation="delete" aria-label="Delete this action and following story">✕ Delete</button></div></div>`).join('');
     document.querySelectorAll('.speak-one').forEach(b=>b.onclick=()=>{
       const m=state.messages.find(x=>String(x.id)===b.dataset.message); if(m) speak(m.content);
     });
+    document.querySelectorAll('.message-command').forEach(b=>b.onclick=()=>openStoryMessageAction(Number(b.dataset.message),b.dataset.operation));
     const last=state.messages.filter(m=>m.role==='gm').at(-1);state.lastNarration=last?.content||'';
   }
   feed.scrollTop=feed.scrollHeight;
@@ -353,6 +354,44 @@ function openAdventureOrNotice(){
   if(state.campaigns.length)openCampaign(state.campaigns[0].id);
   else toast('Start an adventure from the Worlds library first.');
 }
+function openStoryMessageAction(messageId, operation) {
+  if(state.busy||!state.active){toast('Wait for the current Game Master reply first.',true);return;}
+  const message=state.messages.find(m=>m.id===messageId);
+  if(!message||!['retry','delete'].includes(operation))return;
+  const later=state.messages.filter(m=>m.id>messageId).length;
+  const isReply=message.role==='gm';
+  const actionName=operation==='delete'?'Delete and rewind':isReply?'Retry Game Master':'Resend my action';
+  const warn=later?`<p class="rewind-warning">This also removes ${later} later message${later===1?'':'s'} so the story remains consistent. This cannot be undone.</p>`:'';
+  const legacy=isReply && !message.has_checkpoint;
+  const legacyNotice=legacy?`<p class="rewind-warning">This reply predates state checkpoints. Storyforge can change its text and later messages, but cannot reliably reverse its older inventory, journal or location effects. The current state will be preserved.</p>`:'';
+  showModal('STORY CORRECTIONS',actionName,`<p class="muted modal-intro">${operation==='delete'?'Remove this message and any dependent story that follows.':'Get another response to the same action without duplicating your original message.'}</p>
+    <div class="correction-excerpt">${escapeHtml(message.content.slice(0,480))}${message.content.length>480?'…':''}</div>
+    ${warn}${legacyNotice}
+    <label class="field"><span>WHAT WENT WRONG? (OPTIONAL)</span><textarea id="story-correction-reason" rows="4" maxlength="750" placeholder="e.g. The GM spoke for Xeminas, ignored a spell limit, or contradicted established lore."></textarea></label>
+    <p class="muted note">Your feedback is saved locally and used to guide future GM replies. It does not automatically retrain the AI model.</p>
+    <div class="story-confirm-actions"><button class="button secondary" type="button" id="cancel-story-correction">Cancel</button><button class="button ${operation==='delete'?'secondary':'primary'}" type="button" id="confirm-story-correction">${escapeHtml(actionName)}</button></div>
+    <div class="muted" id="story-correction-status" role="status"></div>`);
+  $('cancel-story-correction').onclick=closeModal;
+  $('story-correction-reason').focus();
+  $('confirm-story-correction').onclick=async()=>{
+    if(state.busy)return;
+    const feedback=$('story-correction-reason').value.trim();const btn=$('confirm-story-correction');
+    btn.disabled=true;state.busy=true;$('send-action').disabled=true;
+    $('story-correction-status').textContent=operation==='delete'?'Rewinding story…':'Asking the Game Master to rewrite this turn…';
+    try {
+      const result=await request(`/api/campaigns/${state.active.id}/messages/${messageId}/${operation}`,{
+        method:'POST',body:{feedback,model:$('model').value.trim()||'qwen3:8b',confirm:operation==='delete'?'REWIND':undefined}});
+      stopSpeech();state.messages=result.messages;state.active.state=result.state;
+      closeModal();renderMessages();updateState(result.state);
+      if(result.legacy_state_warning)toast('Older turn adjusted; earlier campaign state could not be fully rewound.',true);
+      else toast(operation==='delete'?'Messages removed. You can now resend your action.':'GM response replaced successfully.');
+      if(operation==='retry'&&$('autoplay').checked)speak(result.narration);
+      await refreshLibrary();
+    }catch(err){$('story-correction-status').textContent=err.message;toast(err.message,true)}
+    finally {state.busy=false;$('send-action').disabled=false;if(document.contains(btn))btn.disabled=false;}
+  };
+}
+
 async function sendAction(value) {
   if(state.busy || !state.active)return;
   const action=value||$('action').value.trim();if(!action)return;
