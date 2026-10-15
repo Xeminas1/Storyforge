@@ -290,3 +290,20 @@ html,body{height:100%;scrollbar-color:#40505c #0e161e}
 @media(max-width:1250px){#adventure .adventure-layout{grid-template-columns:minmax(0,1fr) 355px}}
 @media(max-width:1000px){#adventure .adventure-layout{grid-template-columns:minmax(0,1fr) 320px}#adventure .detail-panel{padding:12px}#adventure .scene-art{height:315px}}
 @media(max-width:700px){#adventure .adventure-layout{grid-template-columns:1fr}#adventure .details{width:min(96vw,395px)}#adventure .detail-panel{padding:12px 15px}#adventure .scene-art{height:clamp(280px,40vh,365px)}}
+
+/* v0.9.0 — shared scene artwork across narrative, with legible glass panels. */
+#adventure{position:relative;isolation:isolate;--story-scene-art:none;background-color:#081016}
+#adventure .adventure-layout{position:relative;isolation:isolate}
+#adventure.has-scene-background .story-column{position:relative;isolation:isolate;background:#0c121800}
+#adventure.has-scene-background .story-column::before{content:'';position:absolute;inset:-14px;z-index:-2;pointer-events:none;background-image:linear-gradient(90deg,rgba(5,10,17,.55),rgba(5,10,17,.26)),var(--story-scene-art);background-position:center;background-size:cover;filter:blur(7px) saturate(.9);transform:scale(1.04);opacity:.95}
+#adventure.has-scene-background .story-column::after{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(180deg,#081018bb 0%,#09121a42 25%,#08101845 70%,#071018b9 100%)}
+#adventure.has-scene-background .story-heading{background:rgba(7,14,22,.68);backdrop-filter:blur(9px)}
+#adventure.has-scene-background .gm-message{background:rgba(8,16,24,.75);border-color:rgba(203,214,228,.27);box-shadow:0 8px 24px #0008;backdrop-filter:blur(13px) brightness(.87)}
+#adventure.has-scene-background .player-message{background:rgba(12,24,33,.77);border-color:rgba(213,185,127,.40);backdrop-filter:blur(13px) brightness(.87)}
+#adventure.has-scene-background .composer,#adventure.has-scene-background .narration-toolbar{background:rgba(8,17,25,.89);backdrop-filter:blur(18px)}
+#adventure.has-scene-background .narrative,#adventure.has-scene-background .player-message p{color:#fff3de;text-shadow:0 1px 2px #000,0 2px 8px #000d}
+#adventure .scene-line{display:inline-block;color:#ffd493;font:600 12px/1.65 system-ui,sans-serif;letter-spacing:.6px;margin-bottom:7px;padding:4px 0;text-shadow:0 2px 5px #000}
+#adventure .narrative em{font-style:italic;color:#fae6b9}
+#adventure .narrative strong{font-weight:700;color:#fff0d4}
+@media(prefers-reduced-transparency:reduce){#adventure.has-scene-background .gm-message,#adventure.has-scene-background .player-message{background:#09121bf2}}
+@media(max-width:700px){#adventure.has-scene-background .story-column::before{filter:blur(13px);opacity:.62}#adventure.has-scene-background .gm-message{background:#081018d9}}

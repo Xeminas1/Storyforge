@@ -1,3 +1,27 @@
+# Storyforge v0.9.0 — immersive scene backgrounds and story-led Game Master
+
+## Highlights
+
+- The *same locally cached Scene artwork* now fills the adventure's story column behind readable frosted-glass narrative panels, with blur and dark overlays for contrast. The image and background update when the location changes; without art, the existing dark background remains.
+- New GM messages begin with `[Location - Parent Area - Time of Day]` on its own line and a blank line before narration; unknown details use a non-invented fallback until established. New story-state fields preserve parent area and time of day.
+- Written documents and text are shown in *italics*, shouts in **bold**, safely rendered without enabling arbitrary HTML. The speech adapter strips formatting and the scene heading before Kokoro synthesis.
+- The GM is now guided to sustain lived-in, dialogue-heavy stories, natural relationships and political rumours, roughly 80% plot/social scenes versus 20% combat, with darker fictional consequences, lasting cause-and-effect and independent NPCs. The GM drives events **without narrating the player's decisions or thoughts**.
+- Kokoro voice begins with a shorter first sentence and prefetches the next chunk while current audio plays. This can reduce initial delay and gaps, but real speed depends on the installed Kokoro service and GPU load. Stop and pause controls remain.
+
+## Install
+
+On v0.8.1, select **Updates → Check & install latest release now**. Your data directory, saved games, character portraits and cached artwork are not replaced.
+
+## Validation
+
+Run `python -m unittest discover -s tests -v`. The repo's GitHub workflow creates releases from committed code; no personal campaign data should be pushed.
+
+## Notes
+
+This is still an offline-first, single-player local app. The new header applies to **new** GM responses; old saves are displayed as originally stored. The current small Ollama model may not follow every creative constraint perfectly. The art background appears only after a location image has been cached. The sidebar art remains full-detail and can be enlarged independently.
+
+---
+
 # Storyforge v0.8.1 — artwork-led sidebar
 
 The adventure's right column is wider and its Scene panel gives location artwork a much larger, uninterrupted frame. Scene and World tabs, character information, location controls and campaign saves remain supported.

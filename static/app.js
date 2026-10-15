@@ -239,6 +239,15 @@ async function openCampaign(campaignId) {
     renderMessages(); updateState(campaign.state); setDetailTab('scene'); await refreshLibrary();
   }catch(err){toast(err.message,true)}
 }
+function renderNarration(raw){
+  // Escape HTML first. Then allow only simple bounded, paired emphasis spans.
+  // The Game Master uses *italics* for written words and **bold** for shouting.
+  let safe=escapeHtml(raw);
+  safe=safe.replace(/\*\*([^*\n]{1,900})\*\*/g,'<strong>$1</strong>');
+  safe=safe.replace(/(?<!\*)\*([^*\n]{1,900})\*(?!\*)/g,'<em>$1</em>');
+  safe=safe.replace(/^(\[[^\]\n]{3,230}\])(?=\n|$)/, '<span class="scene-line">$1</span>');
+  return safe.replace(/\n/g,'<br>');
+}
 function renderMessages() {
   const feed=$('story-feed');
   if(!state.messages.length){
@@ -246,7 +255,7 @@ function renderMessages() {
     state.lastNarration='';$('start-story').onclick=()=>sendAction('__START__');
   } else {
     feed.innerHTML=state.messages.map(m=>m.role==='gm'
-      ? `<div class="gm-message"><div class="message-label"><span class="gold-dot">✦</span> GAME MASTER</div><div class="narrative">${escapeHtml(m.content).replace(/\n/g,'<br>')}</div><button class="speak-one" data-message="${m.id}" title="Read message aloud">▶ Listen</button></div>`
+      ? `<div class="gm-message"><div class="message-label"><span class="gold-dot">✦</span> GAME MASTER</div><div class="narrative">${renderNarration(m.content)}</div><button class="speak-one" data-message="${m.id}" title="Read message aloud">▶ Listen</button></div>`
       : `<div class="player-message"><div class="message-label">YOUR ACTION</div><p>${escapeHtml(m.content).replace(/\n/g,'<br>')}</p></div>`).join('');
     document.querySelectorAll('.speak-one').forEach(b=>b.onclick=()=>{
       const m=state.messages.find(x=>String(x.id)===b.dataset.message); if(m) speak(m.content);
@@ -260,7 +269,7 @@ function updateState(s) {
   $('current-location').textContent=s.location||'Unknown';
   $('scene-title').textContent=s.location||'Uncharted territory';
   if(state.active && state.sceneLocation !== (s.location||'Unknown')) {
-    state.sceneLocation=s.location||'Unknown';state.sceneRecord=null;
+    state.sceneLocation=s.location||'Unknown';state.sceneRecord=null;$('adventure').classList.remove('has-scene-background');$('adventure').style.removeProperty('--story-scene-art');
     refreshSceneArtwork(true).catch(e=>toast(e.message,true));
   }
   $('scene-characters').innerHTML=state.active ? `<div class="scene-person"><span class="person-avatar">✦</span><div><strong>${escapeHtml(state.active.pc_name)}</strong><small>Your character</small></div></div><p class="muted note">Other characters will appear as the world develops. An automatic NPC presence tracker is planned.</p>` : '<p class="muted">No active character</p>';
@@ -400,6 +409,15 @@ function showSceneArt(data){
   state.sceneRecord=data;
   const img=$('scene-image'),art=$('scene-art-placeholder');
   $('scene-expand').disabled=!data.url;
+  const story=$('adventure');
+  if(data.url && /^\/api\/artwork\/scenes\/[a-zA-Z0-9%_-]+\/[a-zA-Z0-9%_-]+$/.test(data.url)){
+    // Keep the background tied to the same cached artwork as the Scene card.
+    story.style.setProperty('--story-scene-art', `url("${data.url}")`);
+    story.classList.add('has-scene-background');
+  }else{
+    story.classList.remove('has-scene-background');
+    story.style.removeProperty('--story-scene-art');
+  }
   if(data.url){img.onload=()=>{img.classList.remove('hidden');art.classList.add('hidden')};img.onerror=()=>{img.classList.add('hidden');art.classList.remove('hidden')};img.src=data.url+'?v='+encodeURIComponent(data.key||'')+(data.job?.status==='ready'?'&stamp='+Date.now():'')}
   else {img.removeAttribute('src');img.classList.add('hidden');art.classList.remove('hidden')}
   $('scene-lock').textContent=data.locked?'♢ Unlock':'♧ Lock';$('scene-lock').disabled=!data.url;
@@ -544,6 +562,7 @@ function showSpellEditor(scope,ownerId,pc,spellId){
 }
 function speechPlainText(text){
   return String(text||'')
+    .replace(/^\[[^\]\n]{3,230}\]\s*\n*/, '')
     .replace(/\\([*`_])/g,'$1')
     .replace(/(\*{1,3})([^*\n]+?)\1/g,(_,stars,content)=>content.trim())
     .replace(/(^|\s)_{1,2}([^_\n]+?)_{1,2}(?=\s|$|[.,!?])/g,(_,before,content)=>before+content.trim())
@@ -588,6 +607,7 @@ function updatePlaybackButtons(){
 function clearAudio(){
   if(cancelAudioWait){const cancel=cancelAudioWait;cancelAudioWait=null;cancel();}
   if(activeController){activeController.abort();activeController=null;}
+  for(const controller of pendingSpeechRequests)controller.abort();pendingSpeechRequests.clear();
   if(activeAudio){activeAudio.pause();activeAudio.removeAttribute('src');activeAudio.load();activeAudio=null;}
   if(activeUrl){URL.revokeObjectURL(activeUrl);activeUrl=null;}
 }
@@ -655,33 +675,54 @@ function playBrowserSpeech(text,seq){
   }
   next();
 }
+function fastStartChunks(text){
+  const sentences=String(text).match(/[^.!?\n]+[.!?\n]*/g)||[text];
+  const first=sentences[0]||'';
+  if(first.length>=20 && first.length<=260){
+    return [first.trim(),...speechChunks(sentences.slice(1).join(''),500)].filter(Boolean);
+  }
+  return speechChunks(text,260);
+}
+const pendingSpeechRequests=new Set();
+async function fetchNeuralChunk(chunk,seq){
+  const controller=new AbortController();pendingSpeechRequests.add(controller);
+  try{
+    const response=await fetch('/api/tts/speech',{
+      method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,
+      body:JSON.stringify({text:chunk,voice:$('voices').value||'bm_george',speed:Number($('speed').value)})
+    });
+    if(!response.ok){let detail;try{detail=(await response.json()).error}catch{}throw new Error(detail||'Neural voice request failed');}
+    const blob=await response.blob();
+    if(seq!==speechSequence)return null;
+    return blob;
+  }finally{pendingSpeechRequests.delete(controller);}
+}
 async function playNeuralSpeech(text,seq){
   try{
-    const chunks=speechChunks(text,950);
-    for(const chunk of chunks){
+    const chunks=fastStartChunks(text);
+    if(!chunks.length){speechDone(seq);return;}
+    // Start short initial speech quickly; prepare only ONE subsequent block at
+    // a time in parallel while the previous audio plays.
+    let nextBlob=fetchNeuralChunk(chunks[0],seq).catch(e=>e);
+    for(let i=0;i<chunks.length;i++){
       if(seq!==speechSequence)return;
       narrationStatus(state.speechPaused?'Narration paused':'Preparing natural voice…');
-      const controller=new AbortController();activeController=controller;
-      const response=await fetch('/api/tts/speech',{
-        method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,
-        body:JSON.stringify({text:chunk,voice:$('voices').value||'bm_george',speed:Number($('speed').value)})
-      });
-      if(seq!==speechSequence)return;
-      if(!response.ok){let detail;try{detail=(await response.json()).error}catch{}throw new Error(detail||'Neural voice request failed');}
-      const blob=await response.blob();
-      if(seq!==speechSequence)return;
-      activeController=null;
+      const blob=await nextBlob;
+      if(seq!==speechSequence || !blob)return;
+      if(blob instanceof Error)throw blob;
+      nextBlob=i+1<chunks.length?fetchNeuralChunk(chunks[i+1],seq).catch(e=>e):null;
       const url=URL.createObjectURL(blob);activeUrl=url;
       const audio=new Audio(url);activeAudio=audio;audio.volume=Number($('volume').value)/100;
       await new Promise((resolve,reject)=>{
-        cancelAudioWait=resolve;
-        audio.onended=()=>{cancelAudioWait=null;resolve();};
-        audio.onerror=()=>{cancelAudioWait=null;reject(new Error('Could not play generated narration audio'));};
+        let complete=false;
+        function finish(error){if(complete)return;complete=true;cancelAudioWait=null;if(error)reject(error);else resolve();}
+        cancelAudioWait=()=>finish();
+        audio.onended=()=>finish();
+        audio.onerror=()=>finish(new Error('Could not play generated narration audio'));
         if(state.speechPaused)return;
-        audio.play().then(()=>narrationStatus('Reading aloud')).catch(reject);
-      // User can resume after initial pause; pause button changes state and plays audio.
+        audio.play().then(()=>narrationStatus('Reading aloud')).catch(finish);
       });
-      cancelAudioWait=null;
+      if(seq!==speechSequence)return;
       if(activeAudio===audio){audio.pause();audio.removeAttribute('src');audio.load();activeAudio=null;}
       if(activeUrl===url){URL.revokeObjectURL(url);activeUrl=null;}
     }
@@ -691,6 +732,7 @@ async function playNeuralSpeech(text,seq){
     stopSpeech();toast(err.message,true);
   }
 }
+
 function speak(text){
   text=speechPlainText(text);
   if(!text.trim())return;

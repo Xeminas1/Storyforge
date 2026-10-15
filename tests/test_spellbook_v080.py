@@ -61,7 +61,7 @@ class SpellbookV080(unittest.TestCase):
         s=engine.speech_friendly_prose('The word \\* wrong \\* echoes. The answer is **no**.')
         self.assertEqual(s,'The word wrong echoes. The answer is no.')
         narrative,_=engine.parse_gm_response(json.dumps({'narration':'A *wrong* decision.','state_updates':{}}))
-        self.assertEqual(narrative,'A wrong decision.')
+        self.assertEqual(narrative,'A *wrong* decision.')
         self.assertEqual(engine.speech_friendly_prose('2 * 3'),'2 times 3')
 
     def test_spell_images_are_local(self):
