@@ -337,3 +337,9 @@ html,body{height:100%;scrollbar-color:#40505c #0e161e}
 .ambient-settings .sound-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;}
 .ambient-settings #ambient-status{flex:1;line-height:1.5;}
 .ambient-settings input[type=range]{width:100%;accent-color:#d5a55f;}
+
+/* v0.12.1: explicit removal of inaccurate journal notes */
+.development-entry{display:flex;align-items:flex-start;gap:8px;justify-content:space-between}
+.development-entry>span{min-width:0;flex:1;overflow-wrap:anywhere}
+.remove-development{background:transparent;border:1px solid rgba(200,175,150,.23);border-radius:4px;color:#d6a58d;cursor:pointer;flex:0 0 auto;font-size:12px;line-height:18px;padding:0 5px}
+.remove-development:hover,.remove-development:focus-visible{border-color:#e1a85c;color:#f8d09d}

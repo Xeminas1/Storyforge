@@ -316,7 +316,28 @@ function updateState(s) {
   }
   $('scene-characters').innerHTML=state.active ? `<div class="scene-person"><span class="person-avatar">✦</span><div><strong>${escapeHtml(state.active.pc_name)}</strong><small>Your character</small></div></div><p class="muted note">Other characters will appear as the world develops. An automatic NPC presence tracker is planned.</p>` : '<p class="muted">No active character</p>';
   $('inventory').innerHTML=(s.inventory||[]).slice(-30).map(v=>`<li>${escapeHtml(v)}</li>`).join('')||'<li class="muted">Empty</li>';
-  $('journal').innerHTML=(s.journal||[]).slice(-7).reverse().map(v=>`<li>${escapeHtml(v)}</li>`).join('')||'<li class="muted">The adventure has just begun</li>';
+  $('journal').innerHTML=(s.journal||[]).map((text,index)=>({text,index})).slice(-7).reverse().map(({text,index})=>`<li class="development-entry"><span>${escapeHtml(text)}</span><button type="button" class="remove-development" data-index="${index}" title="Remove inaccurate story development" aria-label="Remove this development">✕</button></li>`).join('')||'<li class="muted">The adventure has just begun</li>';
+  wireJournalRemoval($('journal'));
+}
+function wireJournalRemoval(container){
+  container.querySelectorAll('.remove-development').forEach(button=>{
+    button.onclick=async()=>{
+      if(!state.active||state.busy)return;
+      const index=Number(button.dataset.index);
+      const text=state.active.state?.journal?.[index];
+      if(!Number.isInteger(index)||text===undefined)return;
+      if(!window.confirm('Remove this Story Development? This only removes the journal note; it does not rewrite previous dialogue.'))return;
+      button.disabled=true;
+      try{
+        const reply=await request('/api/campaigns/'+encodeURIComponent(state.active.id)+'/journal/remove',{
+          method:'POST',body:{index,text}});
+        state.active.state=reply.state;
+        updateState(reply.state);
+        if(!$('codex-overlay').classList.contains('hidden')&&$('nav-journal').classList.contains('active'))renderCodexJournal();
+        toast('Story Development removed');
+      }catch(error){toast(error.message,true);button.disabled=false;}
+    };
+  });
 }
 function renderWorldDetails(world) {
   $('world-detail-title').textContent=world.title;
@@ -465,7 +486,8 @@ function renderCodexWorld(){
 }
 function renderCodexJournal(){
   const journal=state.active.state?.journal||[];
-  $('codex-body').innerHTML=codexSection('Story developments',journal.length?`<ol class="codex-journal">${journal.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ol>`:'<p class="muted">Your adventure is just beginning.</p>');
+  $('codex-body').innerHTML=codexSection('Story developments',journal.length?`<ol class="codex-journal">${journal.map((text,index)=>`<li class="development-entry"><span>${escapeHtml(text)}</span><button class="remove-development" data-index="${index}" aria-label="Remove this development" title="Remove inaccurate story development">✕</button></li>`).join('')}</ol>`:'<p class="muted">Your adventure is just beginning.</p>');
+  wireJournalRemoval($('codex-body'));
 }
 async function uploadPortrait(id,file){
   if(file.size>8*1024*1024)throw new Error('Portrait must be smaller than 8 MB');

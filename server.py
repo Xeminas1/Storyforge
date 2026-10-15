@@ -319,6 +319,11 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, audio, "audio/mpeg")
                 if path == "/api/campaigns":
                     return self.reply({"campaign": engine.new_campaign(con, self.json_body())}, 201)
+                if path.startswith('/api/campaigns/') and path.endswith('/journal/remove'):
+                    parts=path.split('/')
+                    if len(parts)!=6:return self.reply({'error':'Not found'},404)
+                    payload=self.json_body()
+                    return self.reply(engine.remove_journal_entry(con,parts[3],payload.get('index'),str(payload.get('text',''))))
                 if path.startswith('/api/campaigns/') and '/messages/' in path:
                     parts=path.split('/')
                     if len(parts)!=7 or parts[2]!='campaigns' or parts[4]!='messages' or parts[6] not in ('retry','delete'):

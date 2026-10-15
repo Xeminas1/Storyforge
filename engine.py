@@ -522,7 +522,8 @@ GAME_MASTER_POLICY = """You are the Game Master of a persistent, story-first fan
 CORE RULES (player agency and continuity):
 - The player is free to attempt any action. Never force menu choices; never write the player character's dialogue, thoughts, feelings, decisions, or unrequested actions.
 - STRICT PLAYER AGENCY: You only control the world and NPCs. The user's typed action is the sole authority for what the player character voluntarily says or does. NEVER invent first-person quoted speech for the PC, even as a dramatic flourish. NEVER describe the PC raising a hand, casting a spell, moving, agreeing, threatening, making an expression or declaring their name unless the last submitted action explicitly did so. Do not paraphrase the player's dialogue into extra lines. If the player did speak, you may briefly acknowledge their exact words without inventing new ones.
-- Address the player in second person for sensory observations and involuntary environmental effects; do not use second person to assign unrequested voluntary behaviour. Do not treat NPCs' guesses about a player identity as actual player beliefs.
+- Narrate in second or third person ONLY. First-person (I/my/me) belongs exclusively inside clearly attributed NPC speech or written documents, NEVER to the Game Master or the player character. Do not switch into the player viewpoint even for one sentence. Do not assign thoughts, memories, private feelings, intent, speech, or voluntary movement to the PC unless the player explicitly submitted those words or actions.
+- Address the player in second person for sensory observations and involuntary environmental effects; do not use second person to assign unrequested voluntary behaviour. NPCs may guess the PC's identity, but those guesses do not establish the PC's beliefs or actions.
 
 - You initiate and advance events, mysteries, encounters, conversations, and consequences. Do not leave all initiative with the player or end every message by asking what they do. Give space for the player to act.
 - NPCs have independent goals, distinctive voices, stubborn beliefs and flaws. They are not yes-men. Do not assume the character always succeeds. Attempts may fail; assess them against context, opposition, powers and limits. Remember prior NPC relationships and permanent outcomes.
@@ -540,6 +541,7 @@ STORYTELLING STYLE:
 - Write directly and memorably, with selective metaphors and sensory imagery. Do not lapse into recaps, apologetic prefacing, mechanical summaries or out-of-fiction conclusions. Keep scenes unfolding instead of concluding them artificially.
 TECHNICAL RESPONSE:
 - Return ONLY one JSON object with narration (string) and state_updates (object). state_updates supports location, parent_area, time_of_day, journal_entry, inventory_add, inventory_remove.
+- journal_entry must report observable NPC/world events only, in detached third person. NEVER claim the PC said, believed, revealed, confessed, recognised, chose, or did anything not expressly present in the last user action; do not invent player quotes or thoughts in story developments.
 - Narrate established outcomes before applying any state change. Avoid tactical grids or arbitrary numeric combat rules unless the campaign explicitly establishes them.
 """
 
@@ -682,29 +684,66 @@ def ollama_chat(messages: list[dict], model: str, host: str | None = None) -> st
 
 
 
-def player_agency_violations(narration: str, pc_name: str, action: str) -> list[str]:
-    """Conservative, actionable signals that the GM authored the player's turn.
+# Phrases spoken by NPCs and text printed in-world may legitimately use "I";
+# the Game Master's own narration and state must never do so.
+_QUOTED_OR_WRITTEN = re.compile(
+    r'“[^”\n]{1,700}”|"[^"\n]{1,700}"|‘[^’\n]{1,700}’|'
+    r"(?<!\w)'[^'\n]{1,700}'(?=\W|$)|(?<!\w)\*[^*\n]{1,700}\*"
+)
+_FIRST_PERSON = re.compile(r"\b(?:I|me|my|mine|myself|we|us|our|ours|ourselves)\b", re.I)
+_VOLUNTARY_FORMS = {
+    'raise': r'rais(?:e|es|ed|ing)', 'draw': r'draw(?:s|ing)?|drew',
+    'summon': r'summon(?:s|ed|ing)?', 'cast': r'cast(?:s|ing)?',
+    'strike': r'strik(?:e|es|ing)|struck', 'attack': r'attack(?:s|ed|ing)?',
+    'bow': r'bow(?:s|ed|ing)?', 'nod': r'nod(?:s|ded|ding)?',
+    'smile': r'smil(?:e|es|ed|ing)', 'walk': r'walk(?:s|ed|ing)?',
+    'step': r'step(?:s|ped|ping)?', 'grin': r'grin(?:s|ned|ning)?',
+    'reach': r'reach(?:es|ed|ing)?', 'kneel': r'kneel(?:s|ing)?|knelt',
+    'turn': r'turn(?:s|ed|ing)?', 'point': r'point(?:s|ed|ing)?',
+    'lift': r'lift(?:s|ed|ing)?', 'choose': r'choos(?:e|es|ing)|chose',
+    'decide': r'decid(?:e|es|ed|ing)', 'threaten': r'threaten(?:s|ed|ing)?',
+    'continue': r'continu(?:e|es|ed|ing)', 'make clear': r'mad[e]\s+(?:it\s+)?clear|mak(?:e|es|ing)\s+(?:it\s+)?clear',
+    'say': r'say(?:s|ing)?|said', 'speak': r'speak(?:s|ing)?|spoke',
+    'declare': r'declar(?:e|es|ed|ing)', 'reply': r'repl(?:y|ies|ied|ying)',
+    'whisper': r'whisper(?:s|ed|ing)?', 'tell': r'tell(?:s|ing)?|told',
+}
+_MENTAL_FORMS = r'(?:think|thinks|thought|know|knows|knew|realiz(?:e|es|ed)|remember(?:s|ed)?|believ(?:e|es|ed)|feel|feels|felt|want|wants|wanted|intend(?:s|ed)?|recall(?:s|ed)?|understand(?:s|ing)?|understood)'
 
-    Character agency cannot be perfectly validated by regex, so prompt retries
-    are a second line of defence, not a claim of flawless detection.
+
+def player_agency_violations(narration: str, pc_name: str, action: str) -> list[str]:
+    """Fail closed on identifiable authoring of player speech, thoughts or decisions.
+
+    Regex cannot prove perfect agency, but unlike the old detector this checks
+    first-person GM prose, PC-name actions, thoughts and world-memory claims.
+    NPC speech and written in-world text are exempt from first-person scanning.
     """
-    body=re.sub(r'^\[[^\]\n]+\]\s*\n+', '', narration.strip())
+    body=re.sub(r'^\s*\[[^\]\n]+\]\s*\n+', '', str(narration or '').strip())
     findings=[]
-    speech_verbs=r'say|said|reply|replied|declare|declared|answer|answered|ask|asked|command|commanded|shout|shouted|whisper|whispered|mutter|muttered|growl|growled|tell|told|announce|announced|retort|retorted'
-    # Matches fabricated direct speech followed by speaker attribution, and PC-specific speaker tags.
-    if re.search(r'["“][^"”\n]{2,180}["”]\s*,?\s*(?:you|'+re.escape(pc_name)+r')\s+(?:'+speech_verbs+r')\b',body,re.I):
+    speech_verbs=r'say|said|says|reply|replied|replies|declare|declared|declares|answer|answered|ask|asked|command|commanded|shout|shouted|whisper|whispered|mutter|muttered|growl|growled|tell|told|announce|announced|retort|retorted'
+    player_names=[re.escape(pc_name)] if pc_name else []
+    if 'dark monarch' in str(pc_name).casefold() or 'xeminas' in str(pc_name).casefold():
+        player_names.append(r'(?:the\s+)?Dark\s+Monarch')
+    subject=r'(?:you|'+('|'.join(player_names) if player_names else r'(?!x)x')+r')'
+    if re.search(r'["“][^"”\n]{2,180}["”]\s*,?\s*'+subject+r'\s+(?:'+speech_verbs+r')\b',body,re.I):
         findings.append('invented player dialogue')
-    if re.search(r'\b(?:you|'+re.escape(pc_name)+r')\s+(?:'+speech_verbs+r')\b',body,re.I):
-        findings.append('narrator speaks for player')
-    # Obvious discretionary PC actions commonly generated in inappropriate responses.
-    voluntary=r'raise|raised|draw|drew|summon|summoned|cast|casts|strike|struck|attack|attacked|bow|bowed|nod|nodded|smile|smiled|walk|walked|step|stepped|grin|grinned|reach|reached|kneel|knelt|turn|turned|point|pointed|lift|lifted|choose|chose|decide|decided|threaten|threatened'
-    action_text=action.casefold() if action != '__START__' else ''
-    for match in re.finditer(r'\byou\s+('+voluntary+r')\b',body,re.I):
-        word=match.group(1).casefold()
-        if not re.search(r'\b'+re.escape(word)+r'\b',action_text):
-            findings.append('unrequested player action: '+word)
-            break
-    return findings
+    # Strip legitimate NPC speech and literal document text before checking narration voice.
+    prose=_QUOTED_OR_WRITTEN.sub(' ',body)
+    if _FIRST_PERSON.search(prose):
+        findings.append('first-person narration (the GM has taken the player viewpoint)')
+    action_text=str(action or '').casefold() if action!='__START__' else ''
+    if re.search(r'\byou\s+'+_MENTAL_FORMS+r'\b|\b(?:in|through|across)\s+your\s+mind\b',prose,re.I):
+        findings.append('unrequested player thoughts or memories')
+    # Detect PC subject, including the name rather than only "you".
+    # Only allow actions the player's submitted text explicitly expresses.
+    for kind,verb_pattern in _VOLUNTARY_FORMS.items():
+        if re.search(r'\b'+subject+r'\s+(?:(?:quietly|suddenly|then|slowly|carefully|firmly|again)\s+){0,2}(?:'+verb_pattern+r')\b',prose,re.I):
+            if not re.search(r'\b(?:'+verb_pattern+r')\b',action_text,re.I):
+                findings.append('unrequested player action: '+kind)
+                break
+    if re.search(r'\b(?:you|'+('|'.join(player_names) if player_names else r'(?!x)x')+r')\s+(?:'+speech_verbs+r')\b',prose,re.I):
+        if not re.search(r'\b(?:say|said|speak|spoke|tell|told|ask|declare|reply|shout|whisper)\b',action_text):
+            findings.append('narrator speaks for player')
+    return list(dict.fromkeys(findings))
 
 
 def gm_repetition_violations(narration: str, prior: list[dict]) -> list[str]:
@@ -761,14 +800,30 @@ def _generate_turn(con: sqlite3.Connection, campaign: dict, world: dict, action:
         system += '\nCANONICAL CHARACTER SPELLS & ABILITIES (do not invent effects):\n'
         system += json.dumps(selected,ensure_ascii=False)[:8500]
     system += '\nCANONICAL WORLD INFORMATION:\n' + pick_sections(world['sections'], action + ' ' + base_state.get('location','Unknown'))
-    system += '\nESTABLISHED CAMPAIGN STATE:\n' + json.dumps(base_state,ensure_ascii=False)[:5000]
+    # Old GM-created journal notes may contain unapproved PC actions. Do not
+    # treat suspect notes as canon or feed them back to the model. Keep the
+    # original saves intact until the player explicitly deletes a note.
+    grounded_state=json.loads(json.dumps(base_state))
+    grounded_state['journal']=[j for j in grounded_state.get('journal', [])
+        if not player_agency_violations(j,campaign['pc_name'],'__START__')]
+    system += '\nESTABLISHED CAMPAIGN STATE (journal entries screened for player agency):\n' + json.dumps(grounded_state,ensure_ascii=False)[:5000]
     system += gm_feedback_guidance(con,campaign['id'])
     feedback = clean(feedback, 750)
     if feedback:
         system += ('\nIMMEDIATE PLAYER CORRECTION FOR THIS RETRY (fix this specific issue; do not narrate '
                    'the feedback as part of the fiction):\n' + feedback)
     # Keep recent context bounded so the local model can respond promptly.
-    history=[{'role':'assistant' if m['role']=='gm' else 'user','content':m['content'][:1750]} for m in prior[-12:]]
+    # Do not reinforce already-corrupted GM prose during new generations.
+    # Player actions are always retained; old invalid GM messages remain in
+    # stored history so the player can independently delete/retry them.
+    history=[]
+    for message in prior[-12:]:
+        if message['role']=='gm':
+            row=con.execute('SELECT source_action FROM turn_checkpoints WHERE gm_message_id=?',(message['id'],)).fetchone()
+            source=row['source_action'] if row else '__START__'
+            if player_agency_violations(message['content'], campaign['pc_name'], source):
+                continue
+        history.append({'role':'assistant' if message['role']=='gm' else 'user', 'content':message['content'][:1750]})
     system += '\nAVOID REPETITION: Each turn must move the scene forward with new consequential NPC behaviour, details or dialogue. Do not repeat previous GM paragraphs or replay the same opening.\n'
     prompt='Open the campaign with a scene and an immediate story hook. Do not decide what I do.' if action=='__START__' else action
     messages=[{'role':'system','content':system},*history,{'role':'user','content':prompt}]
@@ -783,6 +838,11 @@ def _generate_turn(con: sqlite3.Connection, campaign: dict, world: dict, action:
             continue
         replay_context = prior + ([{'role':'gm','content':avoid_text}] if avoid_text else [])
         violations=player_agency_violations(narration,campaign['pc_name'],action) + gm_repetition_violations(narration,replay_context)
+        journal_entry=clean(changes.get('journal_entry'),350)
+        if journal_entry:
+            # Never let an unchecked memory convert an NPC's assumption into
+            # established player action or dialogue.
+            violations += ['invented player action or belief in story developments'] if player_agency_violations(journal_entry,campaign['pc_name'],action) else []
         if not violations:
             state=apply_patch(base_state,changes,action)
             return scene_heading(narration,state,world['title']),state
@@ -820,6 +880,20 @@ def play_turn(con: sqlite3.Connection, campaign_id: str, action: str, *, model: 
         con.execute('INSERT INTO turn_checkpoints VALUES (?,?,?,?)',
                     (gm,json.dumps(base),json.dumps(state),action))
     return {'narration':narration,'state':state,'messages':get_messages(con,campaign_id)}
+
+
+def remove_journal_entry(con: sqlite3.Connection, campaign_id: str, index: int, expected_text: str) -> dict:
+    """Remove a false development only at the player's explicit request."""
+    campaign=get_campaign(con,campaign_id)
+    state=campaign['state']
+    journal=state.get('journal',[])
+    if not isinstance(index,int) or index<0 or index>=len(journal) or journal[index]!=expected_text:
+        raise ValueError('Story developments changed. Refresh the adventure and try again.')
+    replacement=json.loads(json.dumps(state))
+    del replacement['journal'][index]
+    with con:
+        _revision_update(con,campaign_id,campaign['revision'],replacement)
+    return {'state':replacement,'removed':True}
 
 
 def _message_for(con: sqlite3.Connection, campaign_id: str, message_id: int) -> dict:

@@ -1,3 +1,7 @@
+# Storyforge v0.12.1 — Player agency and journal integrity hotfix
+
+Fixes GM first-person and third-person player action hallucinations, and validates Story Developments as well as narration. Existing suspect journal entries are excluded from GM context and can be removed by the player from the Story Developments panel. This does not silently rewrite old messages.
+
 # Storyforge v0.12.0 — Scene-aware ambient music and GM response reliability
 
 ## Ambient soundtrack
