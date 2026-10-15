@@ -1,3 +1,39 @@
+# Storyforge v0.14.0 — player ownership, grounded lore and reliable corrections
+
+This release strengthens the boundary between the player's submitted action and the GM's world/NPC narration, and fixes several ways a failed or delayed request could damage continuity.
+
+- **Player ownership:** action checks now distinguish the acting character, negation and objects. Watching an NPC raise a hand, refusing to raise a hand, or raising an eyebrow does not authorize the GM to raise the player's hand. Named-character thoughts, passive choices, compound actions and player dialogue have additional checks. Acknowledged dialogue must retain the player's actual words.
+- **Protect story state:** the GM's scene heading, journal, location/time labels and inventory strings are checked before saving. Rejected drafts are excluded from the corrective prompt. Suspect old GM messages and journal entries are withheld from model context and lore retrieval, while the saved originals remain available for explicit correction.
+- **Lore and continuity:** relevant creator canon takes priority over imported public references. References retain their provenance/source, matching complete passages replace blind article-opening excerpts, and the active scene receives more retrieval weight than a planned opening. The complete saved world premise remains in context. Lore preview shows creator/reference labels.
+- **Reliable corrections:** retrying later turns now retains the message IDs needed to restore context. Failed sends retain edited drafts. Delayed sends, feedback and campaign loads cannot replace another adventure's visible state. Submitted corrections keep their controls disabled until the server finishes; closing a dialog cannot cancel a running model request.
+- **Bounded generation and diagnostics:** at most two generations share a 95-second retry budget, with each Ollama socket timeout capped at 70 seconds. A slow server can still exceed a strict wall-clock deadline; this is not GPU/process cancellation. Ollama failures provide actionable guidance without including response bodies. Optional diagnostics report timings, token counts, model and request ID without logging prompts, story text or generated prose.
+
+The checks are conservative text/grammar safeguards, **not a guarantee that every possible model hallucination is detectable**. Live Qwen quality, false rejections and latency still need testing with your installed Ollama model. The game remains free-form and story-focused; NPC dialogue, written documents, externally caused effects, voice, ambient music and artwork remain supported.
+
+## Install and local verification
+
+Use **Updates → Check & install latest release now** after GitHub publishes v0.14.0. Saved campaigns, characters, artwork and preferences under `data/` are retained. This release adds no schema migration or third-party Python dependencies.
+
+Run `python -m unittest discover -s tests -v` and `node --check static/app.js`. The release workflow also runs the executable browser-request checks through Node. Local HTTP/model-protocol tests use a scripted localhost model, not a real Qwen generation.
+
+After updating on your PC:
+
+1. In an existing campaign, try `I turn to look at the figure.` and `I smile knowing that Voldemort seeks me, I continue on.` The GM should advance NPCs/world events without adding your character's speech, gestures, decisions or private beliefs.
+2. Retry a later GM message with feedback. Confirm earlier context is preserved. If Ollama fails, the old reply, later dependent turns and your draft must remain intact.
+3. In the Hogwarts campaign, check **What lore does the GM see?**, then verify the current scene continues without replaying the arrival or treating a future Sorting Ceremony as completed.
+4. Check saved portraits/scene art and narration/music controls in Brave. These cloud tests do not establish Windows audio or GPU behavior.
+
+For optional timing diagnostics in PowerShell, set `STORYFORGE_DIAGNOSTICS` before launch:
+
+```powershell
+$env:STORYFORGE_DIAGNOSTICS = '1'
+py server.py
+```
+
+Keep these diagnostics local. They contain request metadata and model names, not the story text. Remove the variable or close that PowerShell session to return to normal logging.
+
+---
+
 # Storyforge v0.13.0 — world premise and contextual lore grounding
 
 World Atlas description is now **always** included in Game Master instructions. This repairs a bug where the description was stored and displayed but was omitted from the local model's actual context whenever the world contained separate lore entries.

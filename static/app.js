@@ -2,6 +2,8 @@
 const $ = id => document.getElementById(id);
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = { worlds: [], campaigns: [], characters: [], active: null, world: null, messages: [], busy: false, lastNarration: '', neuralAvailable: false, speechPaused: false, speaking: false, detailTab: 'scene', portraitRev: 0, sceneLocation: '', sceneRecord: null, artStatus: null, codexTab: 'sheet' };
+let campaignView=0;
+let pendingStoryCorrection=null;
 
 async function request(url, { method = 'GET', body, raw = false } = {}) {
   const options = {method};
@@ -44,6 +46,7 @@ async function refreshLibrary() {
   document.querySelectorAll('.campaign-link, .reopen-campaign').forEach(b => b.addEventListener('click', () => openCampaign(b.dataset.campaign)));
 }
 function toLibrary(){
+  campaignView++;
   $('adventure').classList.add('hidden'); $('library').classList.remove('hidden');
   document.querySelector('.app-shell').classList.add('home-view');
   $('nav-worlds').classList.add('active'); $('nav-story').classList.remove('active');
@@ -54,7 +57,12 @@ function showModal(eyebrow,title,content) {
   $('modal-eyebrow').textContent=eyebrow; $('modal-title').textContent=title;
   $('modal-content').innerHTML=content; $('modal').classList.remove('hidden');
 }
-function closeModal() { $('modal').classList.add('hidden'); }
+function closeModal() {
+  if(pendingStoryCorrection&&document.contains(pendingStoryCorrection)){
+    toast('The story correction is still running. Your existing story is kept until it succeeds.');return;
+  }
+  $('modal').classList.add('hidden');
+}
 const inp = (id,label,placeholder='',type='text',required=false) => `<label class="field"><span>${label}</span><input id="${id}" type="${type}" placeholder="${escapeHtml(placeholder)}" ${required?'required':''}></label>`;
 function showImportModal() {
   showModal('A NEW STORY', 'Import a community world', `<p class="muted modal-intro">Bring in a world shared by its creator. We never scrape or automatically download content from Friends & Fables.</p><button type="button" class="button secondary full" id="research-during-create">◈ Discover universe lore online</button><div class="tab-switch"><button class="tab active" id="text-tab">Paste world lore</button><button class="tab" id="zip-tab">Import creator ZIP</button></div><form id="import-form">
@@ -268,9 +276,12 @@ function renderCharacter(campaign) {
   $('char-abilities').innerHTML=(pc.abilities||[]).map(a=>`<span class="ability-pill">${escapeHtml(a)}</span>`).join('')||'<span class="muted">No abilities listed — improvise freely.</span>';
 }
 async function openCampaign(campaignId) {
+  const view=++campaignView;
   try {
     const [{campaign}, {messages}] = await Promise.all([request('/api/campaigns/'+campaignId),request('/api/campaigns/'+campaignId+'/messages')]);
-    state.sceneLocation='';stopArtPolling();closeCodex();state.active=campaign; state.messages=messages; state.world=(await request('/api/worlds/'+campaign.world_id)).world;
+    const {world}=await request('/api/worlds/'+campaign.world_id);
+    if(view!==campaignView)return;
+    state.sceneLocation='';stopArtPolling();closeCodex();state.active=campaign;state.messages=messages;state.world=world;
     document.querySelector('.app-shell').classList.remove('home-view');
     $('library').classList.add('hidden'); $('adventure').classList.remove('hidden'); $('nav-worlds').classList.remove('active'); $('nav-story').classList.add('active'); $('campaign-links').classList.add('hidden');
     $('breadcrumb').textContent=`${state.world.title} / ${campaign.title}`;
@@ -360,7 +371,7 @@ async function showGmLoreContext(){
   try{
     const data=await request('/api/campaigns/'+encodeURIComponent(state.active.id)+'/lore-context');
     const lore=data.lore;
-    const entries=(lore.selected_entries||[]).map(e=>`<details class="lore-entry"><summary><span>${escapeHtml(e.title)}</span><small>${escapeHtml(e.kind)}</small></summary><p>${escapeHtml(e.content)}</p>${e.source?`<p class="muted">Source: ${escapeHtml(e.source)}</p>`:''}</details>`).join('');
+    const entries=(lore.selected_entries||[]).map(e=>`<details class="lore-entry"><summary><span>${escapeHtml(e.title)}</span><small>${e.origin==='reference'?'Public reference':'Creator canon'} · ${escapeHtml(e.kind)}</small></summary><p>${escapeHtml(e.content)}</p>${e.source?`<p class="muted">Source: ${escapeHtml(e.source)}</p>`:''}</details>`).join('');
     showModal('GAME MASTER CONTEXT','Lore supplied to the GM',
       `<p class="muted">${escapeHtml(lore.notice)}</p><h3>${escapeHtml(lore.world_title)}</h3><div class="detail-label">WORLD PREMISE — ALWAYS INCLUDED</div><p>${escapeHtml(lore.premise||'No world overview saved.')}</p><details class="lore-entry"><summary>Show full GM scenario guidance</summary><p>${escapeHtml(lore.scenario_guidance||'')}</p></details><div class="detail-label">SELECTED LORE: ${(lore.selected_entries||[]).length} OF ${Number(lore.total_saved_entries)||0} SAVED ENTRIES</div>${entries||'<p class="muted">No detailed lore entries are saved. Use Discover lore to add them.</p>'}`);
   }catch(e){toast(e.message,true);}
@@ -394,6 +405,7 @@ function openAdventureOrNotice(){
 }
 function openStoryMessageAction(messageId, operation) {
   if(state.busy||!state.active){toast('Wait for the current Game Master reply first.',true);return;}
+  const campaign=state.active,view=campaignView;
   const message=state.messages.find(m=>m.id===messageId);
   if(!message||!['retry','delete'].includes(operation))return;
   const later=state.messages.filter(m=>m.id>messageId).length;
@@ -413,36 +425,50 @@ function openStoryMessageAction(messageId, operation) {
   $('story-correction-reason').focus();
   $('confirm-story-correction').onclick=async()=>{
     if(state.busy)return;
-    const feedback=$('story-correction-reason').value.trim();const btn=$('confirm-story-correction');
-    btn.disabled=true;state.busy=true;$('send-action').disabled=true;
-    $('story-correction-status').textContent=operation==='delete'?'Rewinding story…':'Asking the Game Master to rewrite this turn…';
+    if(state.active!==campaign||view!==campaignView){toast('The adventure changed. Reopen the message controls in the adventure you want to correct.',true);return;}
+    const reason=$('story-correction-reason'),btn=$('confirm-story-correction'),cancel=$('cancel-story-correction'),status=$('story-correction-status');
+    const feedback=reason.value.trim();
+    btn.disabled=true;cancel.disabled=true;reason.disabled=true;state.busy=true;$('send-action').disabled=true;
+    pendingStoryCorrection=status;
+    status.textContent=operation==='delete'?'Rewinding story…':'Asking the Game Master to rewrite this turn…';
     try {
-      const result=await request(`/api/campaigns/${state.active.id}/messages/${messageId}/${operation}`,{
+      const result=await request(`/api/campaigns/${campaign.id}/messages/${messageId}/${operation}`,{
         method:'POST',body:{feedback,model:$('model').value.trim()||'qwen3:8b',confirm:operation==='delete'?'REWIND':undefined}});
+      if(state.active!==campaign||view!==campaignView){
+        if(document.contains(status)){pendingStoryCorrection=null;closeModal();}
+        toast('The previous adventure was updated. Reopen it to see the result.');return;
+      }
       stopSpeech();state.messages=result.messages;state.active.state=result.state;
-      closeModal();renderMessages();updateState(result.state);
+      if(document.contains(status)){pendingStoryCorrection=null;closeModal();}
+      renderMessages();updateState(result.state);
       if(result.legacy_state_warning)toast('Older turn adjusted; earlier campaign state could not be fully rewound.',true);
       else toast(operation==='delete'?'Messages removed. You can now resend your action.':'GM response replaced successfully.');
       if(operation==='retry'&&$('autoplay').checked)speak(result.narration);
       await refreshLibrary();
-    }catch(err){$('story-correction-status').textContent=err.message;toast(err.message,true)}
-    finally {state.busy=false;$('send-action').disabled=false;if(document.contains(btn))btn.disabled=false;}
+    }catch(err){status.textContent=err.message;toast(err.message,true)}
+    finally {
+      if(pendingStoryCorrection===status)pendingStoryCorrection=null;
+      state.busy=false;$('send-action').disabled=false;
+      if(document.contains(btn)){btn.disabled=false;cancel.disabled=false;reason.disabled=false;}
+    }
   };
 }
 
 async function sendAction(value) {
   if(state.busy || !state.active)return;
   const action=value||$('action').value.trim();if(!action)return;
+  const campaign=state.active,view=campaignView;
   state.busy=true;$('send-action').disabled=true;$('send-action').textContent='Narrating...';
   const actionBox=$('action');const oldText=actionBox.value;
-  if(action!=='__START__') actionBox.value='';
   let pending=null;
   try {
     pending=document.createElement('div'); pending.className='thinking';pending.textContent='✧ The Game Master is weaving the next scene…'; $('story-feed').appendChild(pending);pending.scrollIntoView({block:'end',behavior:'smooth'});
-    const result=await request(`/api/campaigns/${state.active.id}/turn`,{method:'POST',body:{action,model:$('model').value.trim()||'qwen3:8b'}});
+    const result=await request(`/api/campaigns/${campaign.id}/turn`,{method:'POST',body:{action,model:$('model').value.trim()||'qwen3:8b'}});
+    if(state.active!==campaign||view!==campaignView){toast('The previous adventure was updated. Reopen it to see the result.');return;}
+    if(action!=='__START__'&&actionBox.value===oldText)actionBox.value='';
     state.messages=result.messages;state.active.state=result.state;renderMessages();updateState(result.state);
     if($('autoplay').checked) speak(result.narration);
-  }catch(err){if(action!=='__START__')actionBox.value=oldText;toast(err.message,true)}finally{
+  }catch(err){toast(err.message,true)}finally{
     pending?.remove();state.busy=false;$('send-action').disabled=false;$('send-action').textContent='Send action →';
     await refreshLibrary().catch(()=>{});
   }

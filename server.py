@@ -23,7 +23,7 @@ PORT = int(os.getenv("STORYFORGE_PORT", "8787"))
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Storyforge/0.12.0"
+    server_version = f"Storyforge/{updater.VERSION}"
 
     def _send(self, status: int, data: bytes, mime: str) -> None:
         self.send_response(status)
@@ -364,6 +364,10 @@ def bootstrap() -> None:
 
 
 def run(host: str = HOST, port: int = PORT):
+    if os.getenv("STORYFORGE_DIAGNOSTICS") == "1":
+        logging.basicConfig(level=logging.INFO,
+                            format="%(asctime)s %(levelname)s %(name)s %(message)s")
+        logging.getLogger("engine.ollama").setLevel(logging.INFO)
     bootstrap()
     if host not in ("127.0.0.1", "localhost", "::1"):
         print("WARNING: This version has no login. Use only on a trusted private network such as Tailscale.")
