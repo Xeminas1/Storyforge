@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Storyforge · Worlds without limits</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-emblem">✦</span><div><strong>STORYFORGE</strong><small>YOUR WORLD · YOUR STORY</small></div></div>
+    <div class="side-head">LIBRARY <button class="tiny-button" id="new-world-sidebar" title="Import world">＋</button></div>
+    <button class="nav active" id="nav-worlds"><span>◈</span> Worlds <span class="count" id="world-count">0</span></button>
+    <div class="side-head">ADVENTURES</div>
+    <div id="campaign-links" class="campaign-links"></div>
+    <div class="sidebar-bottom"><div class="status-dot"></div><div><strong>Local & private</strong><small>Campaigns saved to your PC</small></div></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><span id="breadcrumb">Your library / Worlds</span><div class="top-actions"><button class="button ghost small" id="open-updates" title="Install a Storyforge update">↻ Updates <span id="app-version">v0.4.0</span></button><label for="model">GAME MASTER MODEL</label><input id="model" title="Installed Ollama model" value="qwen3:8b" spellcheck="false" list="installed-models" /><datalist id="installed-models"></datalist></div></header>
+    <section id="library" class="page">
+      <div class="hero"><div class="eyebrow">A HOME FOR EVERY ADVENTURE</div><h1>Worlds worth getting lost in.</h1><p>Import shared lore, bring a character to life, and tell a story with a Game Master who remembers what matters.</p><div class="hero-actions"><button class="button primary" id="import-world">＋ Import a world</button><button class="button ghost" id="new-demo">Explore a sample world</button></div></div>
+      <div class="section-heading"><div><span class="eyebrow">THE COLLECTION</span><h2>Your worlds</h2></div><span class="muted" id="library-count">0 worlds</span></div>
+      <div class="world-grid" id="worlds"></div>
+    </section>
+    <section id="adventure" class="page hidden">
+      <div class="adventure-layout">
+        <div class="story-column">
+          <div class="story-heading"><div><div class="eyebrow" id="story-world"></div><h1 id="story-title"></h1></div><button class="button ghost small" id="back-library">← Library</button></div>
+          <div class="narration-toolbar" role="group" aria-label="Narration playback">
+            <span class="narration-status" id="narration-status" aria-live="polite">Narration ready</span>
+            <button class="button ghost small" id="pause-voice">⏸ Pause</button>
+            <button class="button ghost small" id="stop-voice-top">■ Stop</button>
+            <label class="toolbar-volume" for="volume">Volume <span id="volume-value">85%</span><input id="volume" type="range" min="0" max="100" value="85" step="5"></label>
+          </div>
+          <div id="story-feed" class="story-feed" aria-live="polite"></div>
+          <div class="composer"><textarea id="action" rows="2" maxlength="2500" placeholder="What do you do? You can attempt anything..."></textarea><div class="composer-bottom"><span class="muted">Enter to act · Shift+Enter for newline</span><button class="button primary" id="send-action">Send action →</button></div></div>
+        </div>
+        <aside class="details">
+          <div class="details-card"><div class="details-title"><span class="eyebrow">YOUR CHARACTER</span><button id="edit-character" class="button ghost small">✎ Edit</button></div><h2 id="char-name"></h2><p id="char-description" class="muted"></p><div id="char-traits" class="character-traits"></div><div class="detail-label">ABILITIES & SPELLS</div><div id="char-abilities" class="pill-list"></div></div>
+          <div class="details-card"><span class="eyebrow">ADVENTURE JOURNAL</span><div class="detail-label">CURRENT LOCATION</div><p id="current-location">Unknown</p><div class="detail-label">INVENTORY</div><ul id="inventory"></ul><div class="detail-label">RECENT EVENTS</div><ul id="journal"></ul></div>
+          <div class="details-card"><span class="eyebrow">NARRATION</span><label class="toggle-line"><input type="checkbox" id="autoplay" checked> Read new GM messages aloud</label><label class="detail-label" for="voice-engine">VOICE ENGINE</label><select id="voice-engine"><option value="browser">Browser / Windows (basic)</option><option value="kokoro">Kokoro neural (local)</option></select><div id="neural-status" class="muted note">Checking for neural voice server…</div><label class="detail-label" for="voices">VOICE</label><select id="voices"></select><label class="detail-label" for="speed">SPEED <span id="speed-value">1.0×</span></label><input id="speed" type="range" min="0.7" max="1.35" value="1" step="0.05"><div class="sound-actions"><button class="button ghost small" id="replay">▶ Replay last</button><button class="button ghost small" id="stop-voice">■ Stop</button></div><p class="muted note">Neural narration uses an optional locally running KokoroTTS server. If unavailable, choose the browser voice or see the setup guide.</p></div>
+        </aside>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="modal-shade hidden" id="modal"><div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-top"><div><span class="eyebrow" id="modal-eyebrow">YOUR WORLDS</span><h2 id="modal-title">Import world</h2></div><button id="close-modal" class="close" title="Close">×</button></div><div id="modal-content"></div></div></div>
+<div class="toast hidden" id="toast" role="status"></div>
+<script src="/app.js"></script>
+</body></html>
