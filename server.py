@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import engine
-import lore
+import engine as lore
 import engine as artwork
 import narration
 import updater

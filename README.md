@@ -1,4 +1,6 @@
-# Storyforge v0.10.0 — World lore discovery and player agency protections
+# Storyforge v0.10.1 — v0.9.0 updater compatibility fix
+
+**Hotfix:** v0.10.0 accidentally included `lore.py`, which Storyforge v0.9.0 rejects as an unapproved update path. Version 0.10.1 moves the lore functionality into the existing approved `engine.py` module and removes the incompatible file from the release archive. No saved campaigns or art are affected. The original v0.9.0 updater can now install this release without relaxing its path restrictions.
 
 ## New features
 

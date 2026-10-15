@@ -13,10 +13,13 @@ import updater
 def build(version: str, output: Path) -> Path:
     if version != updater.VERSION:
         raise ValueError(f'Updater code says {updater.VERSION}; refused manifest version {version}')
-    paths = ['server.py', 'engine.py', 'narration.py', 'lore.py', 'updater.py', 'README.md']
+    paths = ['server.py', 'engine.py', 'narration.py', 'updater.py', 'README.md']
     paths += [p.relative_to(ROOT).as_posix() for folder in ('static', 'tests', 'tools') for p in (ROOT/folder).iterdir()
               if p.is_file() and updater.installable(p.relative_to(ROOT).as_posix())]
     paths = sorted(set(paths))
+    incompatible = [p for p in paths if not updater.installable(p)]
+    if incompatible:
+        raise ValueError('Release contains disallowed source paths: ' + ', '.join(incompatible))
     contents = {p: (ROOT/p).read_bytes() for p in paths}
     checksums = {p: hashlib.sha256(c).hexdigest() for p,c in contents.items()}
     output.parent.mkdir(parents=True, exist_ok=True)
