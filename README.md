@@ -232,3 +232,18 @@ Run: `py -m unittest discover -s tests -v`
 ## Packaging future Storyforge releases (for maintainers)
 
 Use `python tools/build_release.py X.Y.Z` to generate a `Storyforge_vX.Y.Z.zip` containing an update manifest and hashes. Bump the version string in both `server.py` / `updater.py` as appropriate, and run the unit and HTTP integration tests before publishing. The version in the manifest must match the code shipped.
+## v0.8.0 — spellbook definitions, spell artwork, and speakable narration
+
+- Open **Characters → choose a character → Abilities & spells**, then **Edit ability** or **Add spell or ability**. In an adventure, open the **Character** full overlay, select **Spellbook**, and do the same. Spell entries have an effect, visual description, range, target, cost, limitations, type and flavour. Older one-line spell names are retained with stable IDs and blank descriptions ready to fill in. This is a reusable character feature; editing abilities during a campaign updates that character's library template without overwriting other campaign saves.
+- Each spell can use a PNG/JPEG/WebP image (up to 8 MB). Images are stored in `data/artwork/spells/` and survive updates. You can optionally check **Generate artwork** when saving. It uses the same local ComfyUI service and simple checkpoint sampler workflow as scene art. The art generation job runs in the background; images appear on the spell card after reopening it or refreshing the character. Image generation needs a compatible model; uploads never need ComfyUI.
+- The Game Master receives the actual spell rules as structured context, not just their names. It must judge attempted use fairly and obey declared limitations. Abilities do not become guaranteed successes.
+- The Game Master is told to avoid asterisks, escaped Markdown and other markup. The narration response is also normalised before storage, and the speech adapters clean **old** saved messages before sending text to Kokoro or browser TTS. For example `\\* wrong \\*` is spoken as `wrong`. Spell names/descriptions are not removed.
+
+### Getting local artwork generation running
+
+1. Install **ComfyUI** from its official project: https://www.comfy.org/ (Windows Desktop or portable/NVIDIA package).
+2. Run it locally with a compatible **full Stable Diffusion image checkpoint**. Storyforge's current standard generator uses the CheckpointLoaderSimple/CLIPTextEncode/KSampler graph, not the specialized FLUX/SD3 loaders. Put the `.safetensors` checkpoint in the ComfyUI `models/checkpoints` folder (the location depends on which ComfyUI install you chose) and restart/reload ComfyUI.
+3. Check that `http://127.0.0.1:8188/system_stats` is reachable on the host PC. Storyforge also checks `/object_info/CheckpointLoaderSimple` and requires that at least one checkpoint is listed. If ComfyUI runs on another local port, set `STORYFORGE_COMFY_PORT` to that port before launching Storyforge and restart it.
+4. Return to the **Scene** tab to generate a location image, or the **Spellbook** to generate a spell image. Choose a supported checkpoint when asked. Background image jobs can be slower when Ollama and Kokoro share GPU/CPU resources.
+
+**Security:** keep ComfyUI, Storyforge, Ollama and Kokoro bound to localhost, not exposed to the public internet. Generated imagery is not included with GitHub source or release ZIPs; your images remain in `data/`.

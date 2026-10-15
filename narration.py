@@ -3,6 +3,7 @@
 Only speaks to a fixed localhost service. No arbitrary URLs or remote services.
 """
 import json
+from engine import speech_friendly_prose
 import os
 import re
 import urllib.error
@@ -26,7 +27,7 @@ def status():
 
 
 def synthesize(payload: dict) -> bytes:
-    text = str(payload.get("text", "")).strip()
+    text = speech_friendly_prose(str(payload.get("text", ""))).strip()
     if not text or len(text) > MAX_TEXT:
         raise ValueError(f"Narration segment must contain 1–{MAX_TEXT} characters")
     voice = str(payload.get("voice") or "bm_george")

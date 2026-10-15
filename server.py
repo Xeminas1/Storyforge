@@ -22,7 +22,7 @@ PORT = int(os.getenv("STORYFORGE_PORT", "8787"))
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Storyforge/0.7.0"
+    server_version = "Storyforge/0.8.0"
 
     def _send(self, status: int, data: bytes, mime: str) -> None:
         self.send_response(status)
@@ -112,6 +112,19 @@ class Handler(BaseHTTPRequestHandler):
                               {'png':'image/png','jpg':'image/jpeg','webp':'image/webp'}[file.suffix[1:]])
                         if len(bits)==4:
                             return self.reply({'character':engine.get_character(con,bits[3])})
+                    if path.startswith('/api/spell-images/'):
+                        ident=path.split('/')[-1]
+                        if not __import__('re').fullmatch(r'[a-f0-9-]{36}',ident):
+                            return self.reply({'error':'Invalid spell id'},400)
+                        file=artwork.spell_image_file(DB_PATH,ident)
+                        if not file: return self.reply({'error':'Image not found'},404)
+                        return self._send(200,file.read_bytes(),
+                            {'png':'image/png','jpg':'image/jpeg','webp':'image/webp'}[file.suffix[1:]])
+                    if path.startswith('/api/characters/') and '/spells/' in path and path.endswith('/job'):
+                        parts=path.split('/')
+                        if len(parts)!=7:return self.reply({'error':'Not found'},404)
+                        ch=engine.get_character(con,parts[3]);spell=artwork.find_spell(ch['profile'],parts[5])
+                        return self.reply({'job':artwork.spell_job_status(spell['id'])})
                     if path == "/api/campaigns":
                         return self.reply({"campaigns": engine.list_campaigns(con)})
                     if path.startswith("/api/campaigns/"):
@@ -139,6 +152,15 @@ class Handler(BaseHTTPRequestHandler):
         if origin and urlparse(origin).netloc != self.headers.get("Host"):
             return self.reply({"error": "Cross-origin requests are not allowed"}, 403)
         parts = urlparse(self.path).path.split("/")
+        if len(parts)==5 and parts[:2]==['','api'] and parts[4]=='abilities' and parts[2] in ('campaigns','characters'):
+            try:
+                body=self.json_body()
+                with engine.open_db(DB_PATH) as con:
+                    if parts[2]=='campaigns':
+                        return self.reply({'campaign':engine.save_campaign_abilities(con,parts[3],body.get('abilities'))})
+                    return self.reply({'character':engine.save_library_abilities(con,parts[3],body.get('abilities'))})
+            except LookupError as exc:return self.reply({'error':str(exc)},404)
+            except (ValueError,TypeError) as exc:return self.reply({'error':str(exc)},400)
         if len(parts) != 5 or parts[:2] != ["", "api"] or not (
            (parts[2] == 'campaigns' and parts[4] == 'character') or
            (parts[2] == 'characters' and parts[4] == 'profile')):
@@ -209,6 +231,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply({"error": "Not found"}, 404)
             self.server.release_watcher.user_active()
             with engine.open_db(DB_PATH) as con:
+                if path.startswith('/api/characters/') and '/spells/' in path:
+                    parts=path.split('/')
+                    if len(parts) not in (6,7) or parts[4]!='spells':return self.reply({'error':'Not found'},404)
+                    ch=engine.get_character(con,parts[3]);spell=artwork.find_spell(ch['profile'],parts[5])
+                    if len(parts)==7 and parts[6]=='generate':
+                        body=self.json_body()
+                        return self.reply(artwork.generate_spell_job(DB_PATH,spell,str(body.get('checkpoint',''))),202)
+                    if len(parts)==7 and parts[6]=='image':
+                        raw=self.read_body(artwork.MAX_IMAGE_BYTES)
+                        artwork.save_spell_image(DB_PATH,spell['id'],raw)
+                        return self.reply({'ok':True,'url':'/api/spell-images/'+spell['id']})
+                    return self.reply({'error':'Not found'},404)
                 if path.startswith('/api/characters/') and path.endswith('/portrait'):
                     parts=path.split('/')
                     if len(parts)!=5:return self.reply({'error':'Not found'},404)

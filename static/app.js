@@ -196,8 +196,9 @@ function renderLibraryCharacterDetail(id){
   const c=state.characters.find(x=>x.id===id);if(!c)return;
   const pc=c.profile;
   $('codex-title').textContent=c.name;
-  $('codex-body').innerHTML=`<div class="library-profile"><img src="/api/characters/${encodeURIComponent(c.id)}/portrait" alt="Portrait of ${escapeHtml(c.name)}" onerror="this.style.display='none'"><h2>${escapeHtml(c.name)}</h2><p>${escapeHtml([pc.level?'Level '+pc.level:'',pc.species,pc.role,pc.alignment].filter(Boolean).join(' · '))}</p><div class="library-profile-actions"><button class="button ghost" id="library-back">← All characters</button><button class="button primary" id="library-edit">✎ Edit character</button></div></div><div class="codex-grid">${codexSection('Appearance',paragraph(pc.appearance||pc.description))}${codexSection('Personality & mannerisms',paragraph([pc.personality,pc.mannerisms].filter(Boolean).join('\n\n')))}${codexSection('History',paragraph(pc.background))}${codexSection('Abilities & spells',(pc.abilities||[]).map(x=>`<p>${escapeHtml(x)}</p>`).join('')||'<p class="muted">No abilities yet.</p>')}</div>`;
+  $('codex-body').innerHTML=`<div class="library-profile"><img src="/api/characters/${encodeURIComponent(c.id)}/portrait" alt="Portrait of ${escapeHtml(c.name)}" onerror="this.style.display='none'"><h2>${escapeHtml(c.name)}</h2><p>${escapeHtml([pc.level?'Level '+pc.level:'',pc.species,pc.role,pc.alignment].filter(Boolean).join(' · '))}</p><div class="library-profile-actions"><button class="button ghost" id="library-back">← All characters</button><button class="button primary" id="library-edit">✎ Edit character</button></div></div><div class="codex-grid">${codexSection('Appearance',paragraph(pc.appearance||pc.description))}${codexSection('Personality & mannerisms',paragraph([pc.personality,pc.mannerisms].filter(Boolean).join('\n\n')))}${codexSection('History',paragraph(pc.background))}${codexSection('Abilities & spells',spellLibraryMarkup(pc,c.id))}</div>`;
   $('library-back').onclick=renderCharacterLibrary;$('library-edit').onclick=()=>showLibraryCharacterForm(c);
+  wireSpellButtons('characters', c.id, pc);
 }
 function showEditCharacterModal() {
   const c=state.active;if(!c||!state.world)return;
@@ -356,11 +357,12 @@ function renderCodexTab(){
   const t=state.codexTab;let html='';
   if(t==='sheet')html=`<div class="codex-grid">${codexSection('Details',rows.filter(x=>x[1]).map(([k,v])=>`<div class="codex-data"><span>${k}</span><strong>${escapeHtml(v)}</strong></div>`).join('')||'<p class="muted">No details recorded.</p>')}${codexSection('Appearance',paragraph(pc.appearance))}${codexSection('Personality & Mannerisms',paragraph([pc.personality,pc.mannerisms].filter(Boolean).join('\n\n')))}${codexSection('History & Motivations',paragraph([pc.background,pc.motivation,pc.weaknesses].filter(Boolean).join('\n\n')))}</div>`;
   else if(t==='inventory')html=codexSection('Inventory',(s.inventory||[]).length?`<ul>${s.inventory.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ul>`:'<p class="muted">Your inventory is empty.</p>');
-  else if(t==='spellbook')html=codexSection('Abilities and Spells',(pc.abilities||[]).length?`<div class="codex-spells">${pc.abilities.map(v=>`<div class="codex-spell">✧ ${escapeHtml(v)}</div>`).join('')}</div>`:'<p class="muted">No spells listed. You can still attempt any action.</p>');
+  else if(t==='spellbook')html=codexSection('Abilities and Spells',spellLibraryMarkup(pc,state.active.id));
   else if(t==='progression')html=codexSection('Character progression',`<p>Level: ${escapeHtml(pc.level||'Not specified')}</p><p class="muted">There is no automatic XP or levelling system yet. Your character changes through the story.</p>`);
   else if(t==='relationships')html=codexSection('Relationships', '<p class="muted">Automatic relationship tracking is not implemented yet. The Game Master may still remember relationships described in your narrative.</p>');
   else html=codexSection('Memories',(s.journal||[]).length?`<ol>${s.journal.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ol>`:'<p class="muted">No memories recorded yet.</p>');
   $('codex-tab-content').innerHTML=html;
+  if(t==='spellbook')wireSpellButtons('campaigns',state.active.id,pc);
 }
 function renderCodexWorld(){
   const w=state.world;
@@ -460,6 +462,93 @@ function startArtPolling(kind){
 async function toggleSceneLock(){
   if(!state.active||!state.sceneRecord?.url)return;
   try{const response=await request('/api/artwork/lock-scene',{method:'POST',body:{campaign_id:state.active.id,locked:!state.sceneRecord.locked}});showSceneArt(response.scene)}catch(err){toast(err.message,true)}
+}
+
+function spellImageUrl(id){return '/api/spell-images/'+encodeURIComponent(id);}
+function spellLibraryMarkup(pc,ownerId){
+  const spells=pc.ability_details||[];
+  return `<p class="muted">Describe what each spell does so your Game Master uses its real effects, costs and limitations.</p><div class="spell-gallery">${spells.map(spell=>`<div class="spell-entry"><div class="spell-art"><img src="${spellImageUrl(spell.id)}" alt="Artwork for ${escapeHtml(spell.name)}" loading="lazy" onerror="this.style.display='none'"></div><div class="spell-entry-body"><h4>${escapeHtml(spell.name)}</h4><small>${escapeHtml(spell.kind||'Ability')}</small><p>${escapeHtml(spell.effect||'Add a description so the Game Master understands this ability.')}</p><button type="button" class="button secondary small edit-spell" data-spell-id="${escapeHtml(spell.id)}">✎ Edit ability</button></div></div>`).join('')||'<p class="muted">No spells added yet.</p>'}</div><button type="button" id="spell-add" class="button primary small">＋ Add spell or ability</button>`;
+}
+function wireSpellButtons(scope,ownerId,pc){
+  document.querySelectorAll('.edit-spell').forEach(b=>b.onclick=()=>showSpellEditor(scope,ownerId,pc,b.dataset.spellId));
+  const add=$('spell-add');if(add)add.onclick=()=>showSpellEditor(scope,ownerId,pc,null);
+}
+function spellInput(id,label,value='',rows=0){
+  if(rows)return `<label class="field"><span>${label}</span><textarea id="${id}" rows="${rows}">${escapeHtml(value)}</textarea></label>`;
+  return `<label class="field"><span>${label}</span><input id="${id}" value="${escapeHtml(value)}"></label>`;
+}
+function showSpellEditor(scope,ownerId,pc,spellId){
+  const current=(pc.ability_details||[]).find(x=>x.id===spellId)||{};
+  const newId=spellId||crypto.randomUUID();
+  showModal('SPELLS & ABILITIES', current.name?'Edit '+current.name:'New ability', `<form id="spell-form">
+     ${spellInput('spell-name','NAME',current.name||'')}
+     ${spellInput('spell-kind','TYPE (SPELL / PASSIVE / SUMMON / TECHNIQUE)',current.kind||'')}
+     ${spellInput('spell-effect','WHAT IT DOES — THE GAME MASTER USES THIS',current.effect||'',5)}
+     ${spellInput('spell-visual','WHAT IT LOOKS LIKE',current.visual||'',3)}
+     <div class="form-grid">${spellInput('spell-range','RANGE',current.range||'')}${spellInput('spell-target','TARGET',current.target||'')}</div>
+     ${spellInput('spell-cost','COST / COOLDOWN',current.cost||'')}
+     ${spellInput('spell-limitations','LIMITATIONS / CONDITIONS',current.limitations||'',3)}
+     ${spellInput('spell-flavor','FLAVOUR / HISTORY (OPTIONAL)',current.flavor||'',2)}
+     <div class="spell-art-editor"><img src="${spellImageUrl(newId)}" alt="Spell art" onerror="this.style.display='none'" class="spell-editor-image"><label class="field"><span>UPLOAD SPELL ART (PNG, JPEG, WEBP — 8 MB MAX)</span><input id="spell-file" type="file" accept="image/png,image/jpeg,image/webp"></label><label class="field"><span>GENERATE WITH COMFYUI AFTER SAVING</span><input id="spell-want-generate" type="checkbox"> Generate artwork from the effect and visual description</label><p class="muted note">ComfyUI requires a running local service and image checkpoint; uploading works immediately without it.</p></div>
+     <button class="button primary full" type="submit">Save spell and artwork →</button>
+     ${current.id?'<button class="button ghost full" type="button" id="spell-delete">Remove ability</button>':''}
+     <p class="muted note" id="spell-editor-status"></p></form>`);
+  const all=(pc.ability_details||[]).map(x=>({...x}));
+  const url='/api/'+scope+'/'+encodeURIComponent(ownerId)+'/abilities';
+  const refresh=async()=>{
+    if(scope==='campaigns'){
+      const data=await request('/api/campaigns/'+encodeURIComponent(ownerId));state.active=data.campaign;
+      renderCharacter(state.active);if(!$('codex-overlay').classList.contains('hidden')){state.codexTab='spellbook';renderCodexCharacter();}
+    }else{
+      await refreshLibrary();renderLibraryCharacterDetail(ownerId);
+    }
+  };
+  const save=async(remove=false)=>{
+    const btn=$('spell-form').querySelector('button[type=submit]');btn.disabled=true;
+    try{
+      let next=[...all];
+      if(remove){next=next.filter(x=>x.id!==newId);}
+      else{
+        const name=$('spell-name').value.trim();if(!name)throw Error('Enter a spell name.');
+        const item={id:newId,name,...Object.fromEntries(['kind','effect','visual','range','target','cost','limitations','flavor'].map(k=>[k,$('spell-'+k).value.trim()]))};
+        const index=next.findIndex(x=>x.id===newId);
+        if(index>=0)next[index]=item;else next.push(item);
+      }
+      const saved=await request(url,{method:'PATCH',body:{abilities:next}});
+      if(!remove){
+        const file=$('spell-file').files[0];
+        if(file){
+          if(file.size>8*1024*1024||!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Use PNG, JPEG or WebP below 8 MB.');
+          const charId=scope==='characters'?ownerId:state.active.character_id;
+          if(!charId)throw Error('No reusable character linked to this campaign');
+          const res=await fetch('/api/characters/'+encodeURIComponent(charId)+'/spells/'+encodeURIComponent(newId)+'/image',{method:'POST',headers:{'Content-Type':file.type},body:file});
+          if(!res.ok)throw Error((await res.json()).error||'Could not upload spell artwork');
+        }
+        if($('spell-want-generate').checked) {
+          const charId=scope==='characters'?ownerId:state.active.character_id;
+          const info=await request('/api/artwork/status');
+          if(!info.available||!(info.checkpoints||[]).length){toast('Spell saved. ComfyUI is not ready for generation; upload art now or install ComfyUI and a checkpoint.',true)}
+          else{
+            const checkpoint=settingsGet('comfy_checkpoint','')||info.checkpoints[0];
+            await request('/api/characters/'+encodeURIComponent(charId)+'/spells/'+encodeURIComponent(newId)+'/generate',{method:'POST',body:{checkpoint}});
+            toast('Spell saved. Artwork is generating in the background.');
+          }
+        }
+      }
+      closeModal();await refresh();toast(remove?'Spell removed.':'Spell description saved. The GM can now use it.');
+    }catch(e){$('spell-editor-status').textContent=e.message;toast(e.message,true)}finally{btn.disabled=false;}
+  };
+  $('spell-form').onsubmit=e=>{e.preventDefault();save(false)};
+  if($('spell-delete'))$('spell-delete').onclick=()=>save(true);
+}
+function speechPlainText(text){
+  return String(text||'')
+    .replace(/\\([*`_])/g,'$1')
+    .replace(/(\*{1,3})([^*\n]+?)\1/g,(_,stars,content)=>content.trim())
+    .replace(/(^|\s)_{1,2}([^_\n]+?)_{1,2}(?=\s|$|[.,!?])/g,(_,before,content)=>before+content.trim())
+    .replace(/`+([^`\n]+?)`+/g,(_,content)=>content.trim())
+    .replace(/(^|\s)\*+(?=\s|$)/g,'$1')
+    .trim();
 }
 
 const neuralVoices = [
@@ -602,7 +691,8 @@ async function playNeuralSpeech(text,seq){
   }
 }
 function speak(text){
-  if(!String(text||'').trim())return;
+  text=speechPlainText(text);
+  if(!text.trim())return;
   stopSpeech();const seq=speechSequence;
   state.speaking=true;state.speechPaused=false;
   narrationStatus('Preparing narration…');updatePlaybackButtons();
