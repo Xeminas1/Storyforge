@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = { worlds: [], campaigns: [], active: null, world: null, messages: [], busy: false, lastNarration: '', neuralAvailable: false, speechPaused: false, speaking: false };
+const state = { worlds: [], campaigns: [], active: null, world: null, messages: [], busy: false, lastNarration: '', neuralAvailable: false, speechPaused: false, speaking: false, detailTab: 'scene' };
 
 async function request(url, { method = 'GET', body, raw = false } = {}) {
   const options = {method};
@@ -25,15 +25,17 @@ function toast(text, fail = false) {
 async function refreshLibrary() {
   const [a,b] = await Promise.all([request('/api/worlds'), request('/api/campaigns')]);
   state.worlds = a.worlds; state.campaigns = b.campaigns;
-  $('world-count').textContent = state.worlds.length;
   $('library-count').textContent = state.worlds.length + ' worlds';
   $('worlds').innerHTML = state.worlds.map((w,i) => `<article class="world-card" data-world="${escapeHtml(w.id)}"><div class="card-art art-${i%5}"><span>✦</span></div><div class="world-card-body"><div class="eyebrow">${escapeHtml(w.section_count)} LORE ENTRIES</div><h3>${escapeHtml(w.title)}</h3><p>${escapeHtml(w.description || 'A world waiting for its story to begin.')}</p><div class="byline">Created by ${escapeHtml(w.author)}</div><button class="button secondary start-world" data-world="${escapeHtml(w.id)}">Start adventure →</button></div></article>`).join('');
-  $('campaign-links').innerHTML = state.campaigns.map(c => `<button class="nav campaign-link ${state.active?.id===c.id?'active':''}" data-campaign="${escapeHtml(c.id)}"><span>✧</span><span class="truncate">${escapeHtml(c.title)}</span></button>`).join('') || '<div class="empty-side">No adventures yet</div>';
+  $('campaign-links').innerHTML = `<div class="rail-popup-title">SAVED ADVENTURES</div>` + (state.campaigns.map(c => `<button class="nav campaign-link ${state.active?.id===c.id?'active':''}" data-campaign="${escapeHtml(c.id)}"><span>✧</span><span class="truncate">${escapeHtml(c.title)}</span></button>`).join('') || '<div class="empty-side">No adventures yet</div>');
+  $('campaign-cards').innerHTML = state.campaigns.map(c => `<article class="saved-adventure"><div><span class="eyebrow">CONTINUE ADVENTURE</span><h3>${escapeHtml(c.title)}</h3><p class="muted">Playing as ${escapeHtml(c.pc_name)}</p></div><button class="button secondary reopen-campaign" data-campaign="${escapeHtml(c.id)}">Continue story →</button></article>`).join('') || '<p class="muted">Your adventures will appear here after you create a character.</p>';
   document.querySelectorAll('.start-world').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); showCharacterModal(b.dataset.world); }));
-  document.querySelectorAll('.campaign-link').forEach(b => b.addEventListener('click', () => openCampaign(b.dataset.campaign)));
+  document.querySelectorAll('.campaign-link, .reopen-campaign').forEach(b => b.addEventListener('click', () => openCampaign(b.dataset.campaign)));
 }
 function toLibrary(){
-  $('adventure').classList.add('hidden'); $('library').classList.remove('hidden'); $('nav-worlds').classList.add('active');
+  $('adventure').classList.add('hidden'); $('library').classList.remove('hidden');
+  $('nav-worlds').classList.add('active'); $('nav-story').classList.remove('active');
+  $('campaign-links').classList.add('hidden');document.querySelector('.details').classList.remove('show-on-mobile');
   $('breadcrumb').textContent='Your library / Worlds'; state.active=null; stopSpeech(); refreshLibrary().catch(e=>toast(e.message,true));
 }
 function showModal(eyebrow,title,content) {
@@ -148,6 +150,12 @@ function showEditCharacterModal() {
 function renderCharacter(campaign) {
   const pc=campaign.pc_profile||{};
   $('char-name').textContent=campaign.pc_name;
+  $('char-role-line').textContent=[pc.species,pc.role,pc.level?`Level ${pc.level}`:''].filter(Boolean).join(' · ');
+  const hp=String(pc.max_hp||'').trim();
+  const resources = [];
+  if(hp) resources.push(`<div class="resource"><span>HIT POINTS</span><strong>${escapeHtml(hp)}</strong><div class="resource-meter"><i></i></div><small>Character sheet maximum; live HP tracking not implemented</small></div>`);
+  if(pc.armor_class) resources.push(`<div class="resource"><span>ARMOUR</span><strong>${escapeHtml(pc.armor_class)}</strong></div>`);
+  $('char-resources').innerHTML=resources.join('');
   $('char-description').textContent=pc.appearance||pc.description||pc.background||'Your story is yours to write.';
   const props=[['RACE',pc.species],['ROLE',pc.role],['PRONOUNS',pc.pronouns],['PERSONALITY',pc.personality],['MANNERISMS',pc.mannerisms],['MOTIVATION',pc.motivation]];
   $('char-traits').innerHTML=props.filter(x=>x[1]).map(([key,val])=>`<div><span class="detail-label">${key}</span><p>${escapeHtml(val)}</p></div>`).join('');
@@ -157,18 +165,18 @@ async function openCampaign(campaignId) {
   try {
     const [{campaign}, {messages}] = await Promise.all([request('/api/campaigns/'+campaignId),request('/api/campaigns/'+campaignId+'/messages')]);
     state.active=campaign; state.messages=messages; state.world=(await request('/api/worlds/'+campaign.world_id)).world;
-    $('library').classList.add('hidden'); $('adventure').classList.remove('hidden'); $('nav-worlds').classList.remove('active');
+    $('library').classList.add('hidden'); $('adventure').classList.remove('hidden'); $('nav-worlds').classList.remove('active'); $('nav-story').classList.add('active'); $('campaign-links').classList.add('hidden');
     $('breadcrumb').textContent=`${state.world.title} / ${campaign.title}`;
     $('story-world').textContent=state.world.title; $('story-title').textContent=campaign.title;
-    renderCharacter(campaign);
-    renderMessages(); updateState(campaign.state); await refreshLibrary();
+    renderCharacter(campaign); renderWorldDetails(state.world);
+    renderMessages(); updateState(campaign.state); setDetailTab('scene'); await refreshLibrary();
   }catch(err){toast(err.message,true)}
 }
 function renderMessages() {
   const feed=$('story-feed');
   if(!state.messages.length){
     feed.innerHTML=`<div class="intro-scene"><div class="ornament">✧</div><h2>The story is not yet written.</h2><p>Your character stands at the edge of a new adventure. Let the Game Master set the scene.</p><button id="start-story" class="button primary">Begin the story →</button></div>`;
-    $('start-story').onclick=()=>sendAction('__START__');
+    state.lastNarration='';$('start-story').onclick=()=>sendAction('__START__');
   } else {
     feed.innerHTML=state.messages.map(m=>m.role==='gm'
       ? `<div class="gm-message"><div class="message-label"><span class="gold-dot">✦</span> GAME MASTER</div><div class="narrative">${escapeHtml(m.content).replace(/\n/g,'<br>')}</div><button class="speak-one" data-message="${m.id}" title="Read message aloud">▶ Listen</button></div>`
@@ -183,8 +191,42 @@ function renderMessages() {
 }
 function updateState(s) {
   $('current-location').textContent=s.location||'Unknown';
+  $('scene-title').textContent=s.location||'Uncharted territory';
+  $('scene-characters').innerHTML=state.active ? `<div class="scene-person"><span class="person-avatar">✦</span><div><strong>${escapeHtml(state.active.pc_name)}</strong><small>Your character</small></div></div><p class="muted note">Other characters will appear as the world develops. An automatic NPC presence tracker is planned.</p>` : '<p class="muted">No active character</p>';
   $('inventory').innerHTML=(s.inventory||[]).slice(-30).map(v=>`<li>${escapeHtml(v)}</li>`).join('')||'<li class="muted">Empty</li>';
   $('journal').innerHTML=(s.journal||[]).slice(-7).reverse().map(v=>`<li>${escapeHtml(v)}</li>`).join('')||'<li class="muted">The adventure has just begun</li>';
+}
+function renderWorldDetails(world) {
+  $('world-detail-title').textContent=world.title;
+  $('world-detail-description').textContent=world.description||'The world awaits discovery.';
+  $('world-detail-author').textContent=world.author||'Unknown creator';
+  $('world-lore-entries').innerHTML=(world.sections||[]).slice(0,60).map((entry,i)=>`<details class="lore-entry"><summary><span>${escapeHtml(entry.title||'World entry')}</span><small>${escapeHtml(entry.kind||'lore')}</small></summary><p>${escapeHtml((entry.content||'').slice(0,1800))}</p></details>`).join('')||'<p class="muted">No lore entries available</p>';
+}
+function revealDetailsOnMobile(){
+  if(window.matchMedia('(max-width: 700px)').matches) document.querySelector('.details').classList.add('show-on-mobile');
+}
+function setDetailTab(tab) {
+  if(!['scene','character','world'].includes(tab))return;
+  state.detailTab=tab;
+  for(const name of ['scene','character','world']) {
+    const selected=name===tab;
+    $('tab-'+name).classList.toggle('hidden',!selected);
+    const button=$('select-'+name);
+    button.classList.toggle('active',selected);
+    button.setAttribute('aria-selected',selected?'true':'false');
+    button.tabIndex=selected?0:-1;
+  }
+  $('details-panel')?.scrollTo?.({top:0,behavior:'smooth'});
+}
+function showAbilities(){
+  if(!state.active){toast('Open an adventure to view abilities',true);return;}
+  setDetailTab('character');revealDetailsOnMobile();
+  $('char-abilities').scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+function openAdventureOrNotice(){
+  if(state.active)return;
+  if(state.campaigns.length)openCampaign(state.campaigns[0].id);
+  else toast('Start an adventure from the Worlds library first.');
 }
 async function sendAction(value) {
   if(state.busy || !state.active)return;
@@ -382,7 +424,7 @@ function openUpdatesModal(){
     const st=data.status||{};
     if(st.phase==='completed') $('update-prev-result').textContent='Last update installed successfully.';
     else if(st.phase==='rolled_back'||st.phase==='failed') $('update-prev-result').textContent='Previous update did not complete: '+(st.error||'See data/updates/updater.log');
-    const ch=data.channel||{};
+    const ch=data.channel||{};updateIndicator(data);
     $('auto-updates').checked=!!ch.enabled;
     const msg=ch.phase==='queued'?`Release v${ch.latest} waiting until you're not playing.`:
       ch.phase==='downloading'?'Downloading and verifying the release…':
@@ -401,7 +443,7 @@ function openUpdatesModal(){
     $('check-releases').disabled=true;
     try{await request('/api/updates/check',{method:'POST',body:{}});
       $('update-channel').textContent='Checking the Storyforge GitHub release channel in the background…';
-      toast('Release check started');
+      toast('Release check started');setTimeout(refreshUpdateIndicator,2500);
     }catch(e){toast(e.message,true)}
     finally{$('check-releases').disabled=false;}
   };
@@ -448,10 +490,50 @@ function openUpdatesModal(){
     }catch(e){$('update-result').textContent=e.message;toast(e.message,true);$('install-update').disabled=false;}
   };
 }
+// Keep release status visible in the top bar without opening Settings.
+// A queued release is available even if unattended installation is waiting for idle time.
+function updateIndicator(data) {
+  const version=String(data?.version||'0.5.0');
+  $('app-version').textContent='v'+version;
+  const channel=data?.channel||{};
+  const available=!!(channel.latest && ['queued','downloading','installing'].includes(channel.phase) &&
+    versionCompare(channel.latest,version)>0);
+  const button=$('open-updates');
+  button.classList.toggle('has-update',available);
+  $('update-dot').classList.toggle('hidden',!available);
+  $('update-label').textContent=available?'Update available':'Updates';
+  if(available)button.title=`Storyforge v${channel.latest} available · ${channel.phase}`;
+  else button.title='Storyforge updates · '+(channel.phase||'not checked');
+  return available;
+}
+function versionCompare(a,b) {
+  const parse=v=>/^\d+\.\d+\.\d+$/.test(String(v))?v.split('.').map(Number):null;
+  const x=parse(a),y=parse(b);if(!x||!y)return 0;
+  for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]>y[i]?1:-1;
+  return 0;
+}
+async function refreshUpdateIndicator(){
+  try{const data=await request('/api/updates');updateIndicator(data)}
+  catch{/* Retain last known update state during a restart/offline period. */}
+}
+refreshUpdateIndicator();
+setInterval(refreshUpdateIndicator,60000);
 $('open-updates').onclick=openUpdatesModal;
 $('new-world-sidebar').onclick=showImportModal;
 $('import-world').onclick=showImportModal;
 $('nav-worlds').onclick=toLibrary;
+$('brand-home').onclick=toLibrary;
+$('nav-story').onclick=openAdventureOrNotice;
+$('nav-adventures').onclick=()=>{$('campaign-links').classList.toggle('hidden');};
+$('nav-character').onclick=()=>{if(!state.active) return openAdventureOrNotice();setDetailTab('character');revealDetailsOnMobile();};
+$('nav-world-lore').onclick=()=>{if(!state.active)return toLibrary();setDetailTab('world');revealDetailsOnMobile();};
+$('nav-journal').onclick=()=>{if(!state.active)return openAdventureOrNotice();setDetailTab('scene');revealDetailsOnMobile();$('journal-card').scrollIntoView({block:'nearest',behavior:'smooth'});};
+$('nav-settings').onclick=()=>{if(!state.active)return toast('Open an adventure to configure its narrator.');revealDetailsOnMobile();$('voice-settings').open=true;$('voice-settings').scrollIntoView({block:'nearest',behavior:'smooth'});};
+$('composer-abilities').onclick=showAbilities;
+$('show-details-mobile').onclick=()=>document.querySelector('.details').classList.toggle('show-on-mobile');
+for(const name of ['scene','character','world']) $('select-'+name).onclick=()=>setDetailTab(name);
+// Close the rail's campaign picker when clicking elsewhere.
+document.addEventListener('click',e=>{if(!e.target.closest('#nav-adventures')&&!e.target.closest('#campaign-links'))$('campaign-links').classList.add('hidden');});
 $('back-library').onclick=toLibrary;
 $('new-demo').onclick=async()=>{try{const w=state.worlds.find(w=>w.title.includes('(Demo)'));if(w)showCharacterModal(w.id);else toast('Sample world not found',true)}catch(e){toast(e.message,true)}};
 $('close-modal').onclick=closeModal;

@@ -1,8 +1,29 @@
-# Storyforge v0.4.0 — automatic GitHub updates
+# Storyforge v0.5.0 — immersive story interface
 
-Storyforge is a locally hosted AI story RPG. Version **0.4.0** adds an unattended
-update watcher that looks for verified new releases in the dedicated
-`Xeminas1/Storyforge` GitHub repository. The GitHub update channel becomes active once the repository has published its first official release.
+Storyforge is a locally hosted, free-form story RPG powered by an Ollama Game Master.
+
+## What changed in v0.5.0
+
+- A compact, icon-based navigation rail. Click **Adventures** for a floating saved-story picker, or open saved adventures directly from the library.
+- An immersive three-column adventure view: narrative feed, persistent free-form composer, contextual sidebar.
+- Scene / Character / World tabs. Scene shows your **recorded location**, currently controlled player character, logged developments and inventory. Character shows portrait placeholder, portrayal, optional character-sheet hit points and spells. World displays imported lore sections.
+- Always-visible narration playback toolbar and separate collapsible voice engine options.
+- An **Update available** highlight in the top toolbar whenever the GitHub release watcher has a **newer verified release pending** (including while it's waiting to install); the badge updates every 60 seconds.
+- Narrow-screen support with a Details drawer and responsive navigation. No required action menus or tactical combat were introduced.
+- The user's existing data/ folder and campaigns are preserved during updates.
+
+**Scope limitations:** the scene panel uses an original decorative location card rather than a real map; NPC location tracking, relationship mechanics, and art import are still future projects. Optional hit points come from the character profile; they are not a live combat tracker. Natural Kokoro narration still requires a running Kokoro service. Public Friends & Fables URLs cannot currently be downloaded automatically; import world files or text shared by their creators.
+
+## How to receive v0.5.0
+
+- If Storyforge v0.4.0 has automatic updates enabled, leave the app running. It checks GitHub periodically and installs a verified release after 10 minutes of inactivity **only when the browser isn't actively using Storyforge**. It can be enabled or disabled under **Updates**.
+- To update immediately, download `Storyforge_v0.5.0.zip` from the official GitHub release, then use **Updates → Choose file → Verify selected update → Install update**. Never extract the ZIP manually when using the updater.
+- Restart or refresh Brave after Storyforge finishes. Your stories remain in your PC's local `data/storyforge.db`.
+
+**Security:** update verification checks the GitHub-provided release checksum and package manifest, but neither replaces release signing. Only the pinned repository `Xeminas1/Storyforge` is allowed as the unattended source. Keep your GitHub account secured with MFA and minimal collaborator access.
+
+## Notes carried forward
+
 The updater does not require any stored GitHub access token when the repository
 and its release files are public.
 

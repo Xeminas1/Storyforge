@@ -2,38 +2,65 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Storyforge · Worlds without limits</title><link rel="stylesheet" href="/styles.css"></head>
 <body>
 <div class="app-shell">
-  <aside class="sidebar">
-    <div class="brand"><span class="brand-emblem">✦</span><div><strong>STORYFORGE</strong><small>YOUR WORLD · YOUR STORY</small></div></div>
-    <div class="side-head">LIBRARY <button class="tiny-button" id="new-world-sidebar" title="Import world">＋</button></div>
-    <button class="nav active" id="nav-worlds"><span>◈</span> Worlds <span class="count" id="world-count">0</span></button>
-    <div class="side-head">ADVENTURES</div>
-    <div id="campaign-links" class="campaign-links"></div>
-    <div class="sidebar-bottom"><div class="status-dot"></div><div><strong>Local & private</strong><small>Campaigns saved to your PC</small></div></div>
+  <aside class="sidebar" aria-label="Storyforge navigation">
+    <button class="brand-mark" id="brand-home" title="Storyforge home" aria-label="Storyforge home">✦</button>
+    <div class="rail-group">
+      <button class="rail-btn" id="nav-story" title="Current story" aria-label="Current story" data-tip="Story">✧</button>
+      <button class="rail-btn active" id="nav-worlds" title="World library" aria-label="World library" data-tip="Worlds">◈</button>
+      <button class="rail-btn" id="nav-adventures" title="Saved adventures" aria-label="Saved adventures" data-tip="Adventures">☷</button>
+      <button class="rail-btn" id="nav-character" title="Character sheet" aria-label="Character sheet" data-tip="Character">♙</button>
+      <button class="rail-btn" id="nav-world-lore" title="World lore" aria-label="World lore" data-tip="World lore">⌘</button>
+      <button class="rail-btn" id="nav-journal" title="Adventure journal" aria-label="Adventure journal" data-tip="Journal">▤</button>
+    </div>
+    <div id="campaign-links" class="campaign-links hidden" aria-label="Choose adventure"></div>
+    <div class="rail-bottom">
+      <button class="rail-btn" id="nav-settings" title="Narration settings" aria-label="Narration settings" data-tip="Settings">⚙</button>
+      <button class="rail-btn new-world-rail" id="new-world-sidebar" title="Import a world" aria-label="Import a world" data-tip="Import world">＋</button>
+      <span class="rail-online" title="Local session"></span>
+    </div>
   </aside>
   <main class="main">
-    <header class="topbar"><span id="breadcrumb">Your library / Worlds</span><div class="top-actions"><button class="button ghost small" id="open-updates" title="Install a Storyforge update">↻ Updates <span id="app-version">v0.4.0</span></button><label for="model">GAME MASTER MODEL</label><input id="model" title="Installed Ollama model" value="qwen3:8b" spellcheck="false" list="installed-models" /><datalist id="installed-models"></datalist></div></header>
+    <header class="topbar">
+      <div class="top-context"><span class="top-brand">STORYFORGE</span><span class="top-divider">/</span><span id="breadcrumb">Your library / Worlds</span></div>
+      <div class="top-actions"><button class="button ghost small update-button" id="open-updates" title="Storyforge releases" aria-live="polite"><span class="update-symbol">↻</span> <span id="update-label">Updates</span> <span id="app-version">v0.5.0</span><span id="update-dot" class="hidden" aria-hidden="true"></span></button><label for="model">GAME MASTER MODEL</label><input id="model" title="Installed Ollama model" value="qwen3:8b" spellcheck="false" list="installed-models" /><datalist id="installed-models"></datalist></div>
+    </header>
     <section id="library" class="page">
       <div class="hero"><div class="eyebrow">A HOME FOR EVERY ADVENTURE</div><h1>Worlds worth getting lost in.</h1><p>Import shared lore, bring a character to life, and tell a story with a Game Master who remembers what matters.</p><div class="hero-actions"><button class="button primary" id="import-world">＋ Import a world</button><button class="button ghost" id="new-demo">Explore a sample world</button></div></div>
       <div class="section-heading"><div><span class="eyebrow">THE COLLECTION</span><h2>Your worlds</h2></div><span class="muted" id="library-count">0 worlds</span></div>
       <div class="world-grid" id="worlds"></div>
+      <div class="library-adventures"><div class="section-heading"><div><span class="eyebrow">RETURN TO YOUR STORY</span><h2>Saved adventures</h2></div></div><div id="campaign-cards" class="world-grid"></div></div>
     </section>
-    <section id="adventure" class="page hidden">
+    <section id="adventure" class="page hidden" aria-label="Story session">
       <div class="adventure-layout">
         <div class="story-column">
-          <div class="story-heading"><div><div class="eyebrow" id="story-world"></div><h1 id="story-title"></h1></div><button class="button ghost small" id="back-library">← Library</button></div>
+          <div class="story-heading"><div class="story-heading-copy"><div class="eyebrow" id="story-world"></div><h1 id="story-title"></h1></div><div class="story-head-actions"><button class="button ghost small" id="show-details-mobile" title="Scene and character details">◈ Details</button><button class="button ghost small" id="back-library" title="Back to world library">← Worlds</button></div></div>
+          <div id="story-feed" class="story-feed" aria-live="polite" aria-relevant="additions"></div>
           <div class="narration-toolbar" role="group" aria-label="Narration playback">
             <span class="narration-status" id="narration-status" aria-live="polite">Narration ready</span>
             <button class="button ghost small" id="pause-voice">⏸ Pause</button>
             <button class="button ghost small" id="stop-voice-top">■ Stop</button>
-            <label class="toolbar-volume" for="volume">Volume <span id="volume-value">85%</span><input id="volume" type="range" min="0" max="100" value="85" step="5"></label>
+            <label class="toolbar-volume" for="volume">♬ <span id="volume-value">85%</span><input id="volume" type="range" min="0" max="100" value="85" step="5" aria-label="Narration volume"></label>
           </div>
-          <div id="story-feed" class="story-feed" aria-live="polite"></div>
-          <div class="composer"><textarea id="action" rows="2" maxlength="2500" placeholder="What do you do? You can attempt anything..."></textarea><div class="composer-bottom"><span class="muted">Enter to act · Shift+Enter for newline</span><button class="button primary" id="send-action">Send action →</button></div></div>
+          <div class="composer"><div class="composer-title"><span>✦ YOUR ACTION</span><span class="muted">Free-form storytelling · No restricted choices</span></div><textarea id="action" rows="2" maxlength="2500" placeholder="Your character says or does… You can attempt anything."></textarea><div class="composer-bottom"><span class="muted">Enter to act · Shift+Enter for newline</span><div class="composer-tools"><button class="button ghost small" id="composer-abilities" title="Show character abilities">✧ Abilities</button><button class="button primary" id="send-action">Continue story →</button></div></div></div>
         </div>
-        <aside class="details">
-          <div class="details-card"><div class="details-title"><span class="eyebrow">YOUR CHARACTER</span><button id="edit-character" class="button ghost small">✎ Edit</button></div><h2 id="char-name"></h2><p id="char-description" class="muted"></p><div id="char-traits" class="character-traits"></div><div class="detail-label">ABILITIES & SPELLS</div><div id="char-abilities" class="pill-list"></div></div>
-          <div class="details-card"><span class="eyebrow">ADVENTURE JOURNAL</span><div class="detail-label">CURRENT LOCATION</div><p id="current-location">Unknown</p><div class="detail-label">INVENTORY</div><ul id="inventory"></ul><div class="detail-label">RECENT EVENTS</div><ul id="journal"></ul></div>
-          <div class="details-card"><span class="eyebrow">NARRATION</span><label class="toggle-line"><input type="checkbox" id="autoplay" checked> Read new GM messages aloud</label><label class="detail-label" for="voice-engine">VOICE ENGINE</label><select id="voice-engine"><option value="browser">Browser / Windows (basic)</option><option value="kokoro">Kokoro neural (local)</option></select><div id="neural-status" class="muted note">Checking for neural voice server…</div><label class="detail-label" for="voices">VOICE</label><select id="voices"></select><label class="detail-label" for="speed">SPEED <span id="speed-value">1.0×</span></label><input id="speed" type="range" min="0.7" max="1.35" value="1" step="0.05"><div class="sound-actions"><button class="button ghost small" id="replay">▶ Replay last</button><button class="button ghost small" id="stop-voice">■ Stop</button></div><p class="muted note">Neural narration uses an optional locally running KokoroTTS server. If unavailable, choose the browser voice or see the setup guide.</p></div>
+        <aside class="details" aria-label="Adventure information">
+          <div class="detail-tabs" role="tablist" aria-label="Adventure details">
+            <button class="detail-tab active" type="button" role="tab" aria-selected="true" aria-controls="tab-scene" id="select-scene" data-detail="scene">◈ Scene</button>
+            <button class="detail-tab" type="button" role="tab" aria-selected="false" aria-controls="tab-character" id="select-character" data-detail="character">♙ Character</button>
+            <button class="detail-tab" type="button" role="tab" aria-selected="false" aria-controls="tab-world" id="select-world" data-detail="world">▤ World</button>
+          </div>
+          <div id="tab-scene" class="detail-panel" role="tabpanel" aria-labelledby="select-scene">
+            <div class="scene-art" role="img" aria-label="Decorative scene illustration, not a playable map"><div class="scene-art-decoration">✦</div><div class="scene-art-bottom"><small>YOU ARE HERE</small><h2 id="scene-title">Unknown location</h2></div></div>
+            <div class="scene-note"><span class="eyebrow">CURRENT LOCATION</span><p id="current-location">Unknown</p><p class="muted note">Visual map support is planned. This is a location card, not a generated battle map.</p></div>
+            <div class="details-card"><span class="eyebrow">CHARACTERS HERE</span><div id="scene-characters" class="scene-characters"></div></div>
+            <div class="details-card" id="journal-card"><span class="eyebrow">STORY DEVELOPMENTS</span><ul id="journal"></ul></div>
+            <div class="details-card"><span class="eyebrow">INVENTORY</span><ul id="inventory"></ul></div>
+          </div>
+          <div id="tab-character" class="detail-panel hidden" role="tabpanel" aria-labelledby="select-character">
+            <div class="details-card character-card"><div class="details-title"><span class="eyebrow">YOUR CHARACTER</span><button id="edit-character" class="button ghost small">✎ Edit</button></div><div class="character-emblem">✦</div><h2 id="char-name"></h2><p id="char-role-line" class="character-role-line"></p><p id="char-description" class="muted"></p><div id="char-resources" class="resource-list"></div><div id="char-traits" class="character-traits"></div><div class="detail-label">ABILITIES & SPELLS</div><div id="char-abilities" class="pill-list"></div></div>
+          </div>
+          <div id="tab-world" class="detail-panel hidden" role="tabpanel" aria-labelledby="select-world"><div class="details-card"><span class="eyebrow">WORLD ATLAS</span><h2 id="world-detail-title"></h2><p id="world-detail-description" class="muted"></p><div class="detail-label">WORLD CREATOR</div><p id="world-detail-author"></p><div class="detail-label">WORLD ENTRIES</div><div id="world-lore-entries"></div></div></div>
+          <details class="voice-settings" id="voice-settings"><summary><span>♬ NARRATION SETTINGS</span><span class="muted">⌄</span></summary><div class="voice-settings-inner"><label class="toggle-line"><input type="checkbox" id="autoplay" checked> Read new GM messages aloud</label><label class="detail-label" for="voice-engine">VOICE ENGINE</label><select id="voice-engine"><option value="browser">Browser / Windows (basic)</option><option value="kokoro">Kokoro neural (local)</option></select><div id="neural-status" class="muted note">Checking for neural voice server…</div><label class="detail-label" for="voices">VOICE</label><select id="voices"></select><label class="detail-label" for="speed">SPEED <span id="speed-value">1.0×</span></label><input id="speed" type="range" min="0.7" max="1.35" value="1" step="0.05"><div class="sound-actions"><button class="button ghost small" id="replay">▶ Replay last</button><button class="button ghost small" id="stop-voice">■ Stop</button></div><p class="muted note">Natural Kokoro speech requires your local voice server. Browser speech is the fallback.</p></div></details>
         </aside>
       </div>
     </section>
