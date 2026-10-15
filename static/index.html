@@ -3,6 +3,16 @@
 <body>
 <div class="app-shell">
   <aside class="sidebar" aria-label="Storyforge navigation">
+    <nav id="home-nav" class="home-nav" aria-label="Home navigation">
+      <div class="home-logo">✦ <span>STORYFORGE</span></div>
+      <button id="home-create" class="home-create">＋ Create adventure</button>
+      <button class="home-nav-item active" id="home-home">⌂ <span>Home</span></button>
+      <button class="home-nav-item" id="home-discover">◈ <span>Discover worlds</span></button>
+      <button class="home-nav-item" id="home-campaigns">▤ <span>Campaigns</span></button>
+      <button class="home-nav-item" id="home-characters">♙ <span>Characters</span></button>
+      <button class="home-nav-item" id="home-import">＋ <span>Import world</span></button>
+      <div class="home-nav-footer"><span>YOUR ADVENTURES</span><small id="home-character-count">Your characters and worlds are saved locally.</small></div>
+    </nav>
     <button class="brand-mark" id="brand-home" title="Storyforge home" aria-label="Storyforge home">✦</button>
     <div class="rail-group">
       <button class="rail-btn" id="nav-story" title="Current story" aria-label="Current story" data-tip="Story">✧</button>
@@ -22,13 +32,14 @@
   <main class="main">
     <header class="topbar">
       <div class="top-context"><span class="top-brand">STORYFORGE</span><span class="top-divider">/</span><span id="breadcrumb">Your library / Worlds</span></div>
-      <div class="top-actions"><button class="button ghost small update-button" id="open-updates" title="Storyforge releases" aria-live="polite"><span class="update-symbol">↻</span> <span id="update-label">Updates</span> <span id="app-version">v0.6.1</span><span id="update-dot" class="hidden" aria-hidden="true"></span></button><label for="model">GAME MASTER MODEL</label><input id="model" title="Installed Ollama model" value="qwen3:8b" spellcheck="false" list="installed-models" /><datalist id="installed-models"></datalist></div>
+      <div class="top-actions"><button class="button ghost small update-button" id="open-updates" title="Storyforge releases" aria-live="polite"><span class="update-symbol">↻</span> <span id="update-label">Updates</span> <span id="app-version">v0.7.0</span><span id="update-dot" class="hidden" aria-hidden="true"></span></button><label for="model">GAME MASTER MODEL</label><input id="model" title="Installed Ollama model" value="qwen3:8b" spellcheck="false" list="installed-models" /><datalist id="installed-models"></datalist></div>
     </header>
     <section id="library" class="page">
-      <div class="hero"><div class="eyebrow">A HOME FOR EVERY ADVENTURE</div><h1>Worlds worth getting lost in.</h1><p>Import shared lore, bring a character to life, and tell a story with a Game Master who remembers what matters.</p><div class="hero-actions"><button class="button primary" id="import-world">＋ Import a world</button><button class="button ghost" id="new-demo">Explore a sample world</button></div></div>
-      <div class="section-heading"><div><span class="eyebrow">THE COLLECTION</span><h2>Your worlds</h2></div><span class="muted" id="library-count">0 worlds</span></div>
+      <div class="home-lead"><div><span class="eyebrow">WELCOME BACK TO YOUR STORIES</span><h1>Where will your story take you?</h1></div><button id="home-new-adventure" class="button primary">＋ New adventure</button></div>
+      <section id="recent-section"><div class="section-heading"><div><h2>Recent Campaigns</h2></div><span class="muted" id="recent-count"></span></div><div id="campaign-cards" class="recent-campaign-grid"></div></section>
+      <section id="discovery-section"><div class="section-heading"><div><h2>Discover Worlds</h2><p class="muted">Explore settings you've added to Storyforge.</p></div><div><button class="button ghost small" id="import-world">＋ Import world</button><button class="button ghost small" id="new-demo">Sample world</button></div></div><span class="muted" id="library-count">0 worlds</span></section>
       <div class="world-grid" id="worlds"></div>
-      <div class="library-adventures"><div class="section-heading"><div><span class="eyebrow">RETURN TO YOUR STORY</span><h2>Saved adventures</h2></div></div><div id="campaign-cards" class="world-grid"></div></div>
+
     </section>
     <section id="adventure" class="page hidden" aria-label="Story session">
       <div class="adventure-layout">

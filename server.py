@@ -22,7 +22,7 @@ PORT = int(os.getenv("STORYFORGE_PORT", "8787"))
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Storyforge/0.6.2"
+    server_version = "Storyforge/0.7.0"
 
     def _send(self, status: int, data: bytes, mime: str) -> None:
         self.send_response(status)
@@ -99,6 +99,19 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply({"worlds": engine.list_worlds(con)})
                     if path.startswith("/api/worlds/"):
                         return self.reply({"world": engine.get_world(con, path.rsplit("/", 1)[1])})
+                    if path == "/api/characters":
+                        return self.reply({"characters": engine.list_characters(con)})
+                    if path.startswith("/api/characters/"):
+                        bits=path.split('/')
+                        if len(bits)==5 and bits[4]=='portrait':
+                            ident=bits[3]
+                            engine.get_character(con, ident)
+                            file=artwork.character_file(DB_PATH, ident)
+                            if not file: return self.reply({'error':'Portrait not found'},404)
+                            return self._send(200,file.read_bytes(),
+                              {'png':'image/png','jpg':'image/jpeg','webp':'image/webp'}[file.suffix[1:]])
+                        if len(bits)==4:
+                            return self.reply({'character':engine.get_character(con,bits[3])})
                     if path == "/api/campaigns":
                         return self.reply({"campaigns": engine.list_campaigns(con)})
                     if path.startswith("/api/campaigns/"):
@@ -126,11 +139,16 @@ class Handler(BaseHTTPRequestHandler):
         if origin and urlparse(origin).netloc != self.headers.get("Host"):
             return self.reply({"error": "Cross-origin requests are not allowed"}, 403)
         parts = urlparse(self.path).path.split("/")
-        if len(parts) != 5 or parts[:3] != ["", "api", "campaigns"] or parts[4] != "character":
+        if len(parts) != 5 or parts[:2] != ["", "api"] or not (
+           (parts[2] == 'campaigns' and parts[4] == 'character') or
+           (parts[2] == 'characters' and parts[4] == 'profile')):
             return self.reply({"error": "Not found"}, 404)
         try:
             with engine.open_db(DB_PATH) as con:
-                return self.reply({"campaign": engine.update_character(con, parts[3], self.json_body())})
+                if parts[2]=='characters':
+                    return self.reply({'character':engine.edit_library_character(con,parts[3],self.json_body())})
+                result=engine.update_character(con, parts[3], self.json_body())
+                return self.reply({"campaign": result})
         except LookupError as exc:
             return self.reply({"error": str(exc)}, 404)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -191,12 +209,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply({"error": "Not found"}, 404)
             self.server.release_watcher.user_active()
             with engine.open_db(DB_PATH) as con:
+                if path.startswith('/api/characters/') and path.endswith('/portrait'):
+                    parts=path.split('/')
+                    if len(parts)!=5:return self.reply({'error':'Not found'},404)
+                    char=engine.get_character(con,parts[3])
+                    raw=self.read_body(artwork.MAX_IMAGE_BYTES)
+                    artwork.save_portrait(DB_PATH,char['id'],raw)
+                    # Existing campaigns keep their current portrait unless edited there.
+                    return self.reply({'ok':True,'url':'/api/characters/'+char['id']+'/portrait'})
+                if path == '/api/characters':
+                    return self.reply({'character':engine.create_character(con,self.json_body())},201)
                 if path.startswith('/api/campaigns/') and path.endswith('/portrait'):
                     parts=path.split('/')
                     if len(parts)!=5: return self.reply({'error':'Not found'},404)
                     campaign=engine.get_campaign(con,parts[3])
                     raw=self.read_body(artwork.MAX_IMAGE_BYTES)
                     artwork.save_portrait(DB_PATH,campaign['id'],raw)
+                    if campaign.get('character_id'):
+                        artwork.save_portrait(DB_PATH,campaign['character_id'],raw)
                     return self.reply({'ok':True,'url':'/api/artwork/portraits/'+campaign['id']})
                 if path.startswith('/api/campaigns/') and path.endswith('/portrait/generate'):
                     parts=path.split('/')

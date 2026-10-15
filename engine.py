@@ -66,6 +66,10 @@ def open_db(db_path: str | Path) -> sqlite3.Connection:
         title TEXT NOT NULL, pc_name TEXT NOT NULL, pc_profile TEXT NOT NULL,
         state_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS character_library (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, profile_json TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
@@ -73,6 +77,21 @@ def open_db(db_path: str | Path) -> sqlite3.Connection:
         content TEXT NOT NULL, created_at TEXT NOT NULL
       );
     """)
+    if 'character_id' not in {r['name'] for r in con.execute('PRAGMA table_info(campaigns)')}:
+        con.execute('ALTER TABLE campaigns ADD COLUMN character_id TEXT')
+    # Existing saves migrate once: every earlier campaign gets a reusable character,
+    # preserving independent adventure progress and its original portrait.
+    old = con.execute('SELECT id, pc_name, pc_profile FROM campaigns WHERE character_id IS NULL').fetchall()
+    for campaign in old:
+        ident = new_id()
+        con.execute('INSERT INTO character_library VALUES (?,?,?,?,?)',
+                    (ident, campaign['pc_name'], campaign['pc_profile'], now(), now()))
+        con.execute('UPDATE campaigns SET character_id=? WHERE id=?', (ident, campaign['id']))
+        old_portrait = character_file(Path(db_path), campaign['id']) if str(db_path) != ':memory:' and 'character_file' in globals() else None
+        if old_portrait:
+            import shutil
+            target = old_portrait.with_name(f'{ident}{old_portrait.suffix}')
+            if not target.exists(): shutil.copy2(old_portrait, target)
     con.commit()
     return con
 
@@ -226,37 +245,93 @@ def normalize_character_profile(payload: dict) -> dict:
     return profile
 
 
+def list_characters(con: sqlite3.Connection) -> list[dict]:
+    return [{"id": r["id"], "name": r["name"], "profile": json.loads(r["profile_json"]),
+             "created_at": r["created_at"], "updated_at": r["updated_at"]}
+            for r in con.execute('SELECT * FROM character_library ORDER BY updated_at DESC').fetchall()]
+
+
+def get_character(con: sqlite3.Connection, character_id: str) -> dict:
+    r = con.execute('SELECT * FROM character_library WHERE id=?', (character_id,)).fetchone()
+    if not r: raise LookupError('Character not found')
+    return {"id": r['id'], "name": r['name'], "profile": json.loads(r['profile_json']),
+            "created_at": r['created_at'], "updated_at": r['updated_at']}
+
+
+def create_character(con: sqlite3.Connection, payload: dict) -> dict:
+    name = clean(payload.get('pc_name'), 100)
+    if not name: raise ValueError('Character name is required')
+    profile = normalize_character_profile(payload)
+    cid = new_id()
+    con.execute('INSERT INTO character_library VALUES (?,?,?,?,?)',
+                (cid, name, json.dumps(profile), now(), now()))
+    con.commit()
+    return get_character(con, cid)
+
+
+def edit_library_character(con: sqlite3.Connection, cid: str, payload: dict) -> dict:
+    old = get_character(con, cid)
+    name = clean(payload.get('pc_name', old['name']), 100)
+    if not name: raise ValueError('Character name is required')
+    updated = {**old['profile'], **{key: val for key, val in payload.items()
+               if key in CHARACTER_FIELDS or key == 'abilities'}}
+    con.execute('UPDATE character_library SET name=?,profile_json=?,updated_at=? WHERE id=?',
+                (name, json.dumps(normalize_character_profile(updated)), now(), cid))
+    con.commit()
+    return get_character(con, cid)
+
+
 def update_character(con: sqlite3.Connection, campaign_id: str, payload: dict) -> dict:
-    """Only changes character profile, never overwrites saved messages or state."""
+    """Edits the campaign and its reusable character template, not other campaigns."""
     old = get_campaign(con, campaign_id)
-    name = clean(payload.get("pc_name", old["pc_name"]), 100)
-    if not name:
-        raise ValueError("Character name is required")
-    incoming = {**old["pc_profile"], **{key: value for key, value in payload.items() if key in CHARACTER_FIELDS or key == "abilities"}}
+    name = clean(payload.get('pc_name', old['pc_name']), 100)
+    if not name: raise ValueError('Character name is required')
+    incoming = {**old['pc_profile'], **{key: value for key, value in payload.items()
+                 if key in CHARACTER_FIELDS or key == 'abilities'}}
     new_profile = normalize_character_profile(incoming)
     with con:
-        con.execute("UPDATE campaigns SET pc_name=?,pc_profile=?,updated_at=? WHERE id=?",
+        con.execute('UPDATE campaigns SET pc_name=?,pc_profile=?,updated_at=? WHERE id=?',
                     (name, json.dumps(new_profile), now(), campaign_id))
+        if old.get('character_id'):
+            con.execute('UPDATE character_library SET name=?,profile_json=?,updated_at=? WHERE id=?',
+                        (name, json.dumps(new_profile), now(), old['character_id']))
     return get_campaign(con, campaign_id)
 
 
 def new_campaign(con: sqlite3.Connection, payload: dict) -> dict:
-    world_id = clean(payload.get("world_id"), 100)
+    world_id = clean(payload.get('world_id'), 100)
     world = get_world(con, world_id)
-    character = clean(payload.get("pc_name"), 100)
-    if not character:
-        raise ValueError("Character name is required")
-    profile = normalize_character_profile(payload)
-    equipment = [clean(item, 100) for item in profile["starting_items"].splitlines() if clean(item, 100)][:50]
-    state = {"location": profile["starting_location"] or "Unknown", "inventory": equipment, "journal": [], "last_action": ""}
-    campaign = {"id": new_id(), "world_id": world_id,
-                "title": clean(payload.get("title"), 140) or f"{character} in {world['title']}",
-                "pc_name": character, "pc_profile": profile, "state": state,
-                "created_at": now(), "updated_at": now()}
-    con.execute("INSERT INTO campaigns VALUES (?,?,?,?,?,?,?,?)",
-                (campaign["id"], world_id, campaign["title"], character,
-                 json.dumps(profile), json.dumps(state), campaign["created_at"], campaign["updated_at"]))
-    con.commit()
+    selected = clean(payload.get('character_id'), 100)
+    if selected:
+        record = get_character(con, selected)
+        character, profile, cid = record['name'], record['profile'], selected
+    else:
+        character = clean(payload.get('pc_name'), 100)
+        if not character: raise ValueError('Character name is required')
+        profile = normalize_character_profile(payload)
+        cid = new_id()
+    equipment = [clean(item, 100) for item in profile['starting_items'].splitlines() if clean(item, 100)][:50]
+    state = {'location': profile['starting_location'] or 'Unknown', 'inventory': equipment,
+             'journal': [], 'last_action': ''}
+    campaign = {'id': new_id(), 'world_id': world_id,
+                'title': clean(payload.get('title'), 140) or f"{character} in {world['title']}",
+                'pc_name': character, 'pc_profile': profile, 'character_id': cid, 'state': state,
+                'created_at': now(), 'updated_at': now()}
+    with con:
+        if not selected:
+            con.execute('INSERT INTO character_library VALUES (?,?,?,?,?)',
+                        (cid, character, json.dumps(profile), now(), now()))
+        con.execute("""INSERT INTO campaigns
+           (id,world_id,title,pc_name,pc_profile,state_json,created_at,updated_at,character_id)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+           (campaign['id'], world_id, campaign['title'], character,
+            json.dumps(profile), json.dumps(state), campaign['created_at'], campaign['updated_at'], cid))
+    # A reusable portrait belongs to the character; each campaign gets its own copy.
+    db_file = con.execute('PRAGMA database_list').fetchone()['file']
+    original = character_file(Path(db_file), cid) if db_file else None
+    if original:
+        import shutil
+        shutil.copy2(original, original.with_name(f"{campaign['id']}{original.suffix}"))
     return campaign
 
 

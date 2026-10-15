@@ -1,3 +1,24 @@
+# Storyforge v0.7.0 — Campaign-first home & reusable characters
+
+## Changes
+
+- The home page displays **Recent Campaigns** at the top with an immediate **Continue** action, followed by **Discover Worlds**, based on a familiar fantasy-RPG browsing layout but using Storyforge's original styling.
+- Home navigation includes Home, Discover, Campaigns, and **Characters**. The character library opens in a large overlay, separate from the per-adventure character panel.
+- Any existing campaign character is **migrated once** into the character library, retaining its appearance, mannerisms, abilities and optional portrait. Existing campaigns and story messages are not changed.
+- You may create and edit standalone reusable characters in the library without starting an adventure.
+- Starting an adventure now offers a saved-character chooser and the option to create someone new. A character's appearance and abilities carry across; each campaign retains its own independent state and story.
+- During play the left Character button opens the character overlay on the first click. Navigating Home no longer discards the loaded campaign.
+- Saved campaign artwork, where generated, can appear on recent campaign covers; other cards use local themed gradients rather than fetching external artwork.
+- Portraits remain saved under `data/artwork/portraits/` and are preserved by the built-in updater.
+
+**Install**: With Storyforge v0.6.2 open, choose **Updates → Check & install latest release now** when this release is published. Backups and rollback are handled by the existing updater. After restart, refresh the browser. Never delete the `data/` folder.
+
+**Important character editing behaviour**: A reusable character is a template. Edits to a campaign's character update that character's reusable template, but **do not rewrite other campaigns already using it**. Campaign progress and journal entries are always separate.
+
+**Testing**: Python unit tests cover migrating old SQLite databases, reusing character profiles, preserving existing portraits, keeping campaign state isolated and updater compatibility. JavaScript syntax, a browser test of navigation/character selection, and a release package check were also run. A live Windows upgrade should be validated on your PC.
+
+---
+
 # Storyforge v0.6.2 — full character portraits
 
 This patch fixes portrait images being cropped in both the small sidebar character card and the full Character menu. Portraits now use `object-fit: contain` and a taller portrait-shaped container, so the whole uploaded image remains visible. Landscape and square images will be letterboxed rather than cropped. The character editor, overlays and local saved artwork are unchanged.

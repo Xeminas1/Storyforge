@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = { worlds: [], campaigns: [], active: null, world: null, messages: [], busy: false, lastNarration: '', neuralAvailable: false, speechPaused: false, speaking: false, detailTab: 'scene', portraitRev: 0, sceneLocation: '', sceneRecord: null, artStatus: null, codexTab: 'sheet' };
+const state = { worlds: [], campaigns: [], characters: [], active: null, world: null, messages: [], busy: false, lastNarration: '', neuralAvailable: false, speechPaused: false, speaking: false, detailTab: 'scene', portraitRev: 0, sceneLocation: '', sceneRecord: null, artStatus: null, codexTab: 'sheet' };
 
 async function request(url, { method = 'GET', body, raw = false } = {}) {
   const options = {method};
@@ -23,20 +23,31 @@ function toast(text, fail = false) {
   clearTimeout(toast.timer); toast.timer = setTimeout(() => node.classList.add('hidden'), 5000);
 }
 async function refreshLibrary() {
-  const [a,b] = await Promise.all([request('/api/worlds'), request('/api/campaigns')]);
-  state.worlds = a.worlds; state.campaigns = b.campaigns;
+  const [a,b,c] = await Promise.all([request('/api/worlds'), request('/api/campaigns'), request('/api/characters')]);
+  state.worlds = a.worlds; state.campaigns = b.campaigns; state.characters=c.characters;
+  $('home-character-count').textContent=state.characters.length+' reusable characters · '+state.worlds.length+' worlds';
+  $('recent-count').textContent=state.campaigns.length+' adventures';
   $('library-count').textContent = state.worlds.length + ' worlds';
   $('worlds').innerHTML = state.worlds.map((w,i) => `<article class="world-card" data-world="${escapeHtml(w.id)}"><div class="card-art art-${i%5}"><span>✦</span></div><div class="world-card-body"><div class="eyebrow">${escapeHtml(w.section_count)} LORE ENTRIES</div><h3>${escapeHtml(w.title)}</h3><p>${escapeHtml(w.description || 'A world waiting for its story to begin.')}</p><div class="byline">Created by ${escapeHtml(w.author)}</div><button class="button secondary start-world" data-world="${escapeHtml(w.id)}">Start adventure →</button></div></article>`).join('');
   $('campaign-links').innerHTML = `<div class="rail-popup-title">SAVED ADVENTURES</div>` + (state.campaigns.map(c => `<button class="nav campaign-link ${state.active?.id===c.id?'active':''}" data-campaign="${escapeHtml(c.id)}"><span>✧</span><span class="truncate">${escapeHtml(c.title)}</span></button>`).join('') || '<div class="empty-side">No adventures yet</div>');
-  $('campaign-cards').innerHTML = state.campaigns.map(c => `<article class="saved-adventure"><div><span class="eyebrow">CONTINUE ADVENTURE</span><h3>${escapeHtml(c.title)}</h3><p class="muted">Playing as ${escapeHtml(c.pc_name)}</p></div><button class="button secondary reopen-campaign" data-campaign="${escapeHtml(c.id)}">Continue story →</button></article>`).join('') || '<p class="muted">Your adventures will appear here after you create a character.</p>';
+  $('campaign-cards').innerHTML = state.campaigns.slice(0,8).map((c,i) => `<article class="recent-campaign-card"><div class="recent-campaign-cover art-${i%5}" data-cover="${escapeHtml(c.id)}"><img class="recent-cover-image hidden" alt="Scene from ${escapeHtml(c.title)}"><span class="recent-card-badge">✦ FANTASY</span><span class="recent-card-character">${escapeHtml(c.pc_name)}</span></div><div class="recent-campaign-info"><h3>${escapeHtml(c.title)}</h3><p class="muted">Last played ${escapeHtml(new Date(c.updated_at).toLocaleDateString())}</p><button class="button secondary reopen-campaign" data-campaign="${escapeHtml(c.id)}">▷ Continue</button></div></article>`).join('') || '<div class="home-empty">No campaigns yet. Choose a world below and begin your first story.</div>';
+  for(const c of state.campaigns.slice(0,8)) {
+    request('/api/artwork/scene?campaign_id='+encodeURIComponent(c.id)).then(data=>{
+      if(!data.scene?.url)return;
+      const cover=[...document.querySelectorAll('[data-cover]')].find(e=>e.dataset.cover===c.id);
+      if(!cover)return;
+      const img=cover.querySelector('img');img.src=data.scene.url;img.onload=()=>img.classList.remove('hidden');
+    }).catch(()=>{});
+  }
   document.querySelectorAll('.start-world').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); showCharacterModal(b.dataset.world); }));
   document.querySelectorAll('.campaign-link, .reopen-campaign').forEach(b => b.addEventListener('click', () => openCampaign(b.dataset.campaign)));
 }
 function toLibrary(){
   $('adventure').classList.add('hidden'); $('library').classList.remove('hidden');
+  document.querySelector('.app-shell').classList.add('home-view');
   $('nav-worlds').classList.add('active'); $('nav-story').classList.remove('active');
   $('campaign-links').classList.add('hidden');document.querySelector('.details').classList.remove('show-on-mobile');
-  $('breadcrumb').textContent='Your library / Worlds'; state.active=null;state.sceneLocation='';stopArtPolling();closeCodex();stopSpeech(); refreshLibrary().catch(e=>toast(e.message,true));
+  $('breadcrumb').textContent='Home / Your worlds';stopArtPolling();closeCodex();stopSpeech(); refreshLibrary().catch(e=>toast(e.message,true));
 }
 function showModal(eyebrow,title,content) {
   $('modal-eyebrow').textContent=eyebrow; $('modal-title').textContent=title;
@@ -77,14 +88,14 @@ function showImportModal() {
 }
 const charText = (id, label, hint='', rows=2, value='') => `<label class="field"><span>${label}</span><textarea id="${id}" rows="${rows}" placeholder="${escapeHtml(hint)}">${escapeHtml(value)}</textarea></label>`;
 const charField = (id, label, hint='', value='') => `<label class="field"><span>${label}</span><input id="${id}" type="text" placeholder="${escapeHtml(hint)}" value="${escapeHtml(value)}"></label>`;
-function characterForm(world, campaign=null) {
+function characterForm(world, campaign=null, libraryOnly=false) {
   const pc=campaign?.pc_profile||{};
   const read=(key)=>pc[key]||'';
   const abilities=Array.isArray(pc.abilities)?pc.abilities.join('\n'):'';
-  const t=campaign ? 'Save character changes' : 'Create adventure →';
-  return `<div class="world-preview">${escapeHtml(world.description)}</div>
+  const t=campaign ? 'Save character changes' : libraryOnly ? 'Save to character library' : 'Create adventure →';
+  return `<div class="world-preview">${escapeHtml(libraryOnly?'Create a reusable character for any world.':world.description)}</div>
     <form id="character-form">
-      ${!campaign?charField('campaign-title','ADVENTURE TITLE',`A Story in ${world.title}`):''}
+      ${!campaign&&!libraryOnly?charField('campaign-title','ADVENTURE TITLE',`A Story in ${world.title}`):''}
       <div class="form-section"><div class="eyebrow">IDENTITY</div>
         <label class="field"><span>CHARACTER NAME</span><input id="pc-name" value="${escapeHtml(campaign?.pc_name||'')}" placeholder="Your character's name" required></label>
         <div class="form-grid">${charField('pc-pronouns','PRONOUNS','he/him, she/her, they/them',read('pronouns'))}${charField('pc-species','RACE / SPECIES','High Elf',read('species'))}</div>
@@ -126,17 +137,67 @@ function readCharacterForm(){
 async function showCharacterModal(worldId) {
   try {
     const {world}=await request('/api/worlds/'+encodeURIComponent(worldId));
-    showModal('CREATE YOUR CHARACTER', `Enter ${world.title}`, characterForm(world));
-    $('character-form').onsubmit=async e=>{
-      e.preventDefault(); const btn=e.target.querySelector('button[type=submit]');btn.disabled=true;
+    await refreshLibrary();
+    showModal('BEGIN A CAMPAIGN', `Enter ${world.title}`, `<p class="muted">Choose one of your saved characters, or make a new one.</p><label class="field"><span>ADVENTURE NAME</span><input id="chosen-campaign-title" placeholder="${escapeHtml('A Story in '+world.title)}"></label><div class="character-picker">${state.characters.map(c=>`<button class="character-pick" data-character="${escapeHtml(c.id)}"><img src="/api/characters/${encodeURIComponent(c.id)}/portrait" alt="" onerror="this.style.visibility='hidden'"><span><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml([c.profile.species,c.profile.role].filter(Boolean).join(' · ')||'Your character')}</small></span><span>Play →</span></button>`).join('')||'<p class="muted">No saved characters yet.</p>'}</div><button class="button primary full" id="create-fresh-character">＋ Create a new character</button>`);
+    document.querySelectorAll('[data-character]').forEach(btn=>btn.onclick=async()=>{
+      btn.disabled=true;
       try {
-        const payload={world_id:worldId,title:$('campaign-title').value,...readCharacterForm()};
-        const {campaign}=await request('/api/campaigns',{method:'POST',body:payload});
-        if($('pc-portrait-upload').files[0]) await uploadPortrait(campaign.id,$('pc-portrait-upload').files[0]);
-        closeModal();await openCampaign(campaign.id);toast('Adventure created. Begin when you are ready.');
-      }catch(err){toast(err.message,true)}finally{btn.disabled=false;}
-    };
+        const {campaign}=await request('/api/campaigns',{method:'POST',body:{world_id:worldId,character_id:btn.dataset.character,title:$('chosen-campaign-title').value}});
+        closeModal();await openCampaign(campaign.id);toast('Adventure ready with your saved character.');
+      }catch(err){toast(err.message,true);btn.disabled=false;}
+    });
+    $('create-fresh-character').onclick=()=>showNewCampaignCharacterForm(world);
   }catch(err){toast(err.message,true)}
+}
+function showNewCampaignCharacterForm(world){
+  showModal('CREATE YOUR CHARACTER', `Enter ${world.title}`, characterForm(world));
+  $('character-form').onsubmit=async e=>{
+    e.preventDefault();const btn=e.target.querySelector('button[type=submit]');btn.disabled=true;
+    try {
+      const payload={world_id:world.id,title:$('campaign-title').value,...readCharacterForm()};
+      const {campaign}=await request('/api/campaigns',{method:'POST',body:payload});
+      if($('pc-portrait-upload').files[0]) await uploadPortrait(campaign.id,$('pc-portrait-upload').files[0]);
+      closeModal();await openCampaign(campaign.id);toast('Your character has also been saved to your library.');
+    }catch(err){toast(err.message,true)}finally{btn.disabled=false}
+  };
+}
+async function uploadLibraryPortrait(id,file){
+  if(file.size>8*1024*1024||!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Choose a PNG, JPEG or WebP under 8 MB');
+  const r=await fetch('/api/characters/'+encodeURIComponent(id)+'/portrait',{method:'POST',headers:{'Content-Type':file.type},body:file});
+  if(!r.ok)throw Error((await r.json()).error||'Upload failed');
+}
+async function showCharacterLibrary(){
+  try{await refreshLibrary();renderCharacterLibrary()}catch(e){toast(e.message,true)}
+}
+function renderCharacterLibrary(){
+  $('codex-eyebrow').textContent='YOUR COLLECTION';$('codex-title').textContent='Character Library';
+  $('codex-overlay').classList.remove('hidden');$('codex-overlay').setAttribute('aria-hidden','false');
+  $('codex-body').innerHTML=`<div class="library-header"><p>Reusable characters for every adventure. Creating a campaign keeps its own story progress.</p><button class="button primary" id="library-create-character">＋ New character</button></div><div class="character-library-grid">${state.characters.map(c=>`<button class="library-character" data-library-id="${escapeHtml(c.id)}"><div class="library-portrait"><img src="/api/characters/${encodeURIComponent(c.id)}/portrait" alt="" onerror="this.style.display='none'"></div><h3>${escapeHtml(c.name)}</h3><p>${escapeHtml([c.profile.species,c.profile.role].filter(Boolean).join(' · '))}</p></button>`).join('')||'<p class="muted">Your library is empty. Create a character or start an adventure.</p>'}</div>`;
+  $('library-create-character').onclick=()=>showLibraryCharacterForm();
+  document.querySelectorAll('[data-library-id]').forEach(b=>b.onclick=()=>renderLibraryCharacterDetail(b.dataset.libraryId));
+  $('codex-close').focus();
+}
+function showLibraryCharacterForm(existing=null){
+  const mockWorld={title:'Your characters',description:'Build a character to reuse in any Storyforge world.'};
+  const mockCampaign=existing?{pc_name:existing.name,pc_profile:existing.profile}:null;
+  showModal('CHARACTER LIBRARY',existing?'Edit '+existing.name:'New reusable character',characterForm(mockWorld,mockCampaign,!existing));
+  $('character-form').onsubmit=async e=>{
+    e.preventDefault();const btn=e.target.querySelector('button[type=submit]');btn.disabled=true;
+    try{
+      const form=readCharacterForm();const r=existing?
+        await request('/api/characters/'+encodeURIComponent(existing.id)+'/profile',{method:'PATCH',body:form}):
+        await request('/api/characters',{method:'POST',body:form});
+      const pic=$('pc-portrait-upload').files[0];if(pic)await uploadLibraryPortrait(r.character.id,pic);
+      closeModal();await refreshLibrary();renderCharacterLibrary();toast('Reusable character saved.');
+    }catch(err){toast(err.message,true)}finally{btn.disabled=false}
+  };
+}
+function renderLibraryCharacterDetail(id){
+  const c=state.characters.find(x=>x.id===id);if(!c)return;
+  const pc=c.profile;
+  $('codex-title').textContent=c.name;
+  $('codex-body').innerHTML=`<div class="library-profile"><img src="/api/characters/${encodeURIComponent(c.id)}/portrait" alt="Portrait of ${escapeHtml(c.name)}" onerror="this.style.display='none'"><h2>${escapeHtml(c.name)}</h2><p>${escapeHtml([pc.level?'Level '+pc.level:'',pc.species,pc.role,pc.alignment].filter(Boolean).join(' · '))}</p><div class="library-profile-actions"><button class="button ghost" id="library-back">← All characters</button><button class="button primary" id="library-edit">✎ Edit character</button></div></div><div class="codex-grid">${codexSection('Appearance',paragraph(pc.appearance||pc.description))}${codexSection('Personality & mannerisms',paragraph([pc.personality,pc.mannerisms].filter(Boolean).join('\n\n')))}${codexSection('History',paragraph(pc.background))}${codexSection('Abilities & spells',(pc.abilities||[]).map(x=>`<p>${escapeHtml(x)}</p>`).join('')||'<p class="muted">No abilities yet.</p>')}</div>`;
+  $('library-back').onclick=renderCharacterLibrary;$('library-edit').onclick=()=>showLibraryCharacterForm(c);
 }
 function showEditCharacterModal() {
   const c=state.active;if(!c||!state.world)return;
@@ -169,6 +230,7 @@ async function openCampaign(campaignId) {
   try {
     const [{campaign}, {messages}] = await Promise.all([request('/api/campaigns/'+campaignId),request('/api/campaigns/'+campaignId+'/messages')]);
     state.sceneLocation='';stopArtPolling();closeCodex();state.active=campaign; state.messages=messages; state.world=(await request('/api/worlds/'+campaign.world_id)).world;
+    document.querySelector('.app-shell').classList.remove('home-view');
     $('library').classList.add('hidden'); $('adventure').classList.remove('hidden'); $('nav-worlds').classList.remove('active'); $('nav-story').classList.add('active'); $('campaign-links').classList.add('hidden');
     $('breadcrumb').textContent=`${state.world.title} / ${campaign.title}`;
     $('story-world').textContent=state.world.title; $('story-title').textContent=campaign.title;
@@ -232,7 +294,7 @@ function showAbilities(){
   $('char-abilities').scrollIntoView({block:'nearest',behavior:'smooth'});
 }
 function openAdventureOrNotice(){
-  if(state.active)return;
+  if(state.active){openCampaign(state.active.id);return;}
   if(state.campaigns.length)openCampaign(state.campaigns[0].id);
   else toast('Start an adventure from the Worlds library first.');
 }
@@ -713,10 +775,17 @@ $('new-world-sidebar').onclick=showImportModal;
 $('import-world').onclick=showImportModal;
 $('nav-worlds').onclick=toLibrary;
 $('brand-home').onclick=toLibrary;
+$('home-home').onclick=toLibrary;
+$('home-discover').onclick=()=>{$('discovery-section').scrollIntoView({behavior:'smooth'})};
+$('home-campaigns').onclick=()=>{$('recent-section').scrollIntoView({behavior:'smooth'})};
+$('home-characters').onclick=showCharacterLibrary;
+$('home-import').onclick=showImportModal;
+$('home-create').onclick=()=>{$('discovery-section').scrollIntoView({behavior:'smooth'})};
+$('home-new-adventure').onclick=()=>{$('discovery-section').scrollIntoView({behavior:'smooth'})};
 $('nav-story').onclick=openAdventureOrNotice;
 $('nav-adventures').onclick=()=>{$('campaign-links').classList.toggle('hidden');};
-$('nav-character').onclick=()=>{if(!state.active) return openAdventureOrNotice();showCodex('character');};
-$('nav-world-lore').onclick=()=>{if(!state.active)return toLibrary();showCodex('world');};
+$('nav-character').onclick=()=>{if(state.active&&state.world)showCodex('character');else showCharacterLibrary();};
+$('nav-world-lore').onclick=()=>{if(!state.active){toLibrary();return}showCodex('world');};
 $('nav-journal').onclick=()=>{if(!state.active)return openAdventureOrNotice();showCodex('journal');};
 $('nav-settings').onclick=()=>{if(!state.active)return toast('Open an adventure to configure its narrator.');revealDetailsOnMobile();$('voice-settings').open=true;$('voice-settings').scrollIntoView({block:'nearest',behavior:'smooth'});};
 $('composer-abilities').onclick=()=>{if(!state.active)return;state.codexTab='spellbook';showCodex('character');};
@@ -766,6 +835,7 @@ request('/api/models').then(result=>{
   }
   if(!models.length) toast('No local Ollama models detected. Start Ollama and install a model before playing.',true);
 }).catch(()=>{});
+document.querySelector('.app-shell').classList.add('home-view');
 refreshLibrary().catch(e=>toast(e.message,true));
 
 // Keep an open, visible campaign safe from unattended application restarts.
