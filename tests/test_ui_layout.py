@@ -50,6 +50,8 @@ class LayoutTests(unittest.TestCase):
 
     def test_update_badge_shows_only_newer_version(self):
         self.assertIn('function updateIndicator(data)', self.js)
+        self.assertIn('id="install-latest-now"', self.js)
+        self.assertIn("'/api/updates/install-latest'", self.js)
         self.assertIn('versionCompare(channel.latest,version)>0', self.js)
         self.assertIn("'Update available':'Updates'", self.js)
         self.assertIn('refreshUpdateIndicator();', self.js)

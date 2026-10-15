@@ -402,13 +402,15 @@ async function checkNeural(){
   }catch{$('neural-status').textContent='Unable to check Kokoro service.';}
 }
 // This updater never asks the browser to unpack or overwrite program files.
-// The user chooses a trusted release ZIP and must explicitly approve installation.
+// A local user can install a verified GitHub release immediately or select a ZIP.
 function openUpdatesModal(){
   showModal('APPLICATION UPDATES', 'Update Storyforge', `
     <p class="muted modal-intro">Future verified GitHub releases can install automatically when Storyforge isn't being used. Saved campaigns are backed up before each installation.</p>
     <div class="world-preview"><strong>Installed:</strong> <span id="update-installed">Checking...</span><p class="muted note" id="update-prev-result"></p></div>
     <label class="toggle-line"><input type="checkbox" id="auto-updates" checked> Automatically install trusted updates when idle</label>
     <p class="muted note" id="update-channel">Checking GitHub release channel…</p>
+    <button class="button primary full" id="install-latest-now">Check &amp; install latest release now</button>
+    <p class="muted note">Updates immediately at your request—even while you're using Storyforge. Your current session will briefly disconnect during restart.</p>
     <button class="button secondary full" id="check-releases">Check GitHub for updates</button>
     <hr class="section-break">
     <p class="muted note">You can also install a trusted release ZIP manually, as in v0.3.0.</p>
@@ -433,6 +435,39 @@ function openUpdatesModal(){
       ch.error?ch.error:'No release check completed yet.';
     $('update-channel').textContent=`GitHub: ${ch.repository||'Not configured'} · ${msg}`;
   }).catch(e=>{ $('update-installed').textContent='Unavailable: '+e.message; });
+  $('install-latest-now').onclick=async()=>{
+    const button=$('install-latest-now');
+    button.disabled=true;
+    $('update-result').textContent='Checking the official GitHub release and installing if a newer version exists…';
+    try{
+      const oldVersion=(await request('/api/updates')).version;
+      await request('/api/updates/install-latest',{method:'POST',body:{}});
+      for(let attempt=0;attempt<110;attempt++){
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        try{
+          const data=await request('/api/updates');
+          updateIndicator(data);
+          const phase=data.channel?.phase;
+          if(data.version!==oldVersion && data.status?.phase==='completed'){
+            $('update-result').textContent='Updated to v'+data.version+'. Reloading…';
+            location.reload();return;
+          }
+          if(phase==='current'){
+            $('update-result').textContent='You already have the latest published Storyforge version.';
+            return;
+          }
+          if(phase==='failed'||phase==='unavailable'){
+            $('update-result').textContent='GitHub update could not finish: '+(data.channel?.error||'See updater.log');
+            return;
+          }
+          if(phase==='downloading')$('update-result').textContent='Downloading and verifying the official release…';
+          if(phase==='installing')$('update-result').textContent='Installing update and restarting Storyforge…';
+        }catch{/* The server briefly goes offline during restart. */}
+      }
+      $('update-result').textContent='Still waiting for Storyforge to restart. See data/updates/updater.log if needed.';
+    }catch(e){$('update-result').textContent=e.message;toast(e.message,true)}
+    finally{button.disabled=false;}
+  };
   $('auto-updates').onchange=async()=>{
     try{
       const data=await request('/api/updates/auto',{method:'POST',body:{enabled:$('auto-updates').checked}});

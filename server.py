@@ -145,6 +145,9 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/api/updates/check":
                     self.server.release_watcher.check_now()
                     return self.reply({'ok': True, 'message': 'Release check queued'})
+                if path == "/api/updates/install-latest":
+                    # The host user asked to install now: do not require 10 idle minutes.
+                    return self.reply(self.server.release_watcher.install_latest_now())
                 if path == "/api/updates/inspect":
                     payload = self.read_body(updater.MAX_ZIP_SIZE)
                     return self.reply(updater.stage_package(ROOT, payload))

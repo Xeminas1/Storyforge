@@ -28,7 +28,7 @@ import uuid
 import zipfile
 from pathlib import Path, PurePosixPath
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 MAX_ZIP_SIZE = 30 * 1024 * 1024
 MAX_UNPACKED = 80 * 1024 * 1024
 MAX_FILES = 250
@@ -485,6 +485,8 @@ class UpdateWatcher:
         self._pending: dict | None = None
         self._last_activity = time.monotonic()
         self._lock = threading.Lock()
+        self._operation_lock = threading.Lock()  # Serialize discovery and installation jobs.
+        self._manual_lock = threading.Lock()  # Reject double-clicked install requests.
         self.thread: threading.Thread | None = None
 
     def user_active(self):
@@ -504,59 +506,111 @@ class UpdateWatcher:
         self.thread.start()
 
     def check(self):
-        if not channel_enabled(self.root):
+        if not channel_enabled(self.root) or self._manual_lock.locked():
             return
-        save_channel_status(self.root, last_check=int(time.time()), phase='checking', error=None)
+        if not self._operation_lock.acquire(blocking=False):
+            return
         try:
-            latest = read_latest()
-            self._pending = latest
-            save_channel_status(self.root, last_check=int(time.time()), source_configured=True,
-                        latest=latest['version'] if latest else None,
-                        phase='queued' if latest else 'current', error=None)
-        except urllib.error.HTTPError as exc:
-            save_channel_status(self.root, last_check=int(time.time()),
-                        source_configured=(exc.code != 404), phase='unavailable',
-                        error=('Storyforge GitHub release repository or releases not ready yet'
-                               if exc.code == 404 else f'GitHub HTTP {exc.code}'))
+            save_channel_status(self.root, last_check=int(time.time()), phase='checking', error=None)
+            try:
+                latest = read_latest()
+                self._pending = latest
+                save_channel_status(self.root, last_check=int(time.time()), source_configured=True,
+                            latest=latest['version'] if latest else None,
+                            phase='queued' if latest else 'current', error=None)
+            except urllib.error.HTTPError as exc:
+                save_channel_status(self.root, last_check=int(time.time()),
+                            source_configured=(exc.code != 404), phase='unavailable',
+                            error=('Storyforge GitHub release repository or releases not ready yet'
+                                   if exc.code == 404 else f'GitHub HTTP {exc.code}'))
+            except Exception as exc:
+                logging.warning('Storyforge release check failed: %s', exc)
+                save_channel_status(self.root, last_check=int(time.time()), phase='unavailable',
+                            error=str(exc)[:300])
+        finally:
+            self._operation_lock.release()
+
+    def install_latest_now(self) -> dict:
+        """Explicit local-user action: verify and install now, ignoring idle/auto preferences."""
+        if not self._manual_lock.acquire(blocking=False):
+            raise ValueError('An immediate update is already underway')
+        try:
+            self._last_checked = time.monotonic()
+            save_channel_status(self.root, phase='checking', error=None,
+                                last_check=int(time.time()))
+            threading.Thread(target=self._install_now_worker,
+                             name='storyforge-install-now', daemon=True).start()
+        except Exception:
+            self._manual_lock.release()
+            raise
+        return {'ok': True, 'message': 'Checking GitHub and installing the latest verified release now'}
+
+    def _install_now_worker(self) -> None:
+        try:
+            # Wait for any regular update check or background install to finish.
+            with self._operation_lock:
+                info = read_latest()
+                self._pending = info
+                if info is None:
+                    save_channel_status(self.root, source_configured=True, latest=None,
+                                        phase='current', error=None, last_check=int(time.time()))
+                    return
+                save_channel_status(self.root, source_configured=True, latest=info['version'],
+                                    phase='downloading', error=None, last_check=int(time.time()))
+                raw = download_verified(info)
+                stage = stage_package(self.root, raw)
+                save_channel_status(self.root, phase='installing', latest=info['version'])
+                begin_install(self.root, self.db, stage['token'], self.server,
+                              self.server.server_address[0], self.server.server_address[1])
+                self._pending = None
+                self.stop.set()
         except Exception as exc:
-            logging.warning('Storyforge release check failed: %s', exc)
-            save_channel_status(self.root, last_check=int(time.time()), phase='unavailable',
-                        error=str(exc)[:300])
+            logging.exception('Immediate GitHub update failed')
+            save_channel_status(self.root, phase='failed', error=str(exc)[:300])
+        finally:
+            self._manual_lock.release()
 
     def run(self):
         # Always let the app finish opening before touching release discovery.
         self.stop.wait(5)
         while not self.stop.is_set():
             now = time.monotonic()
-            if channel_enabled(self.root) and now - self._last_checked >= CHECK_INTERVAL:
+            if (not self._manual_lock.locked() and channel_enabled(self.root)
+                    and now - self._last_checked >= CHECK_INTERVAL):
                 self._last_checked = now
                 self.check()
-            if channel_enabled(self.root) and self._pending and self.is_idle():
+            if (not self._manual_lock.locked() and channel_enabled(self.root)
+                    and self._pending and self.is_idle()):
                 self.install_pending()
             self.wake.wait(POLL_SECONDS)
             self.wake.clear()
 
     def install_pending(self):
-        info = self._pending
-        if not info or not channel_enabled(self.root) or not self.is_idle():
+        if self._manual_lock.locked() or not self._operation_lock.acquire(blocking=False):
             return
-        self._pending = None
         try:
-            save_channel_status(self.root, phase='downloading', latest=info['version'], error=None)
-            raw = download_verified(info)
-            if not channel_enabled(self.root) or not self.is_idle():
-                self._pending = info
-                save_channel_status(self.root, phase='queued')
+            info = self._pending
+            if not info or not channel_enabled(self.root) or not self.is_idle():
                 return
-            stage = stage_package(self.root, raw)
-            save_channel_status(self.root, phase='installing', latest=info['version'])
-            begin_install(self.root, self.db, stage['token'], self.server,
-                                  self.server.server_address[0], self.server.server_address[1])
-            self.stop.set()
-        except Exception as exc:
-            logging.exception('Unattended update failed')
-            save_channel_status(self.root, phase='failed', error=str(exc)[:300])
-            # Don't repeatedly retry potentially corrupt releases every 30s.
+            self._pending = None
+            try:
+                save_channel_status(self.root, phase='downloading', latest=info['version'], error=None)
+                raw = download_verified(info)
+                if not channel_enabled(self.root) or not self.is_idle():
+                    self._pending = info
+                    save_channel_status(self.root, phase='queued')
+                    return
+                stage = stage_package(self.root, raw)
+                save_channel_status(self.root, phase='installing', latest=info['version'])
+                begin_install(self.root, self.db, stage['token'], self.server,
+                                      self.server.server_address[0], self.server.server_address[1])
+                self.stop.set()
+            except Exception as exc:
+                logging.exception('Unattended update failed')
+                save_channel_status(self.root, phase='failed', error=str(exc)[:300])
+                # Don't repeatedly retry potentially corrupt releases every 30s.
+        finally:
+            self._operation_lock.release()
 
 
 if __name__ == '__main__':
