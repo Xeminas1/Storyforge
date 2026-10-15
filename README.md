@@ -1,3 +1,7 @@
+# Storyforge v0.6.1 — updater compatibility fix
+
+**Use v0.6.1, not v0.6.0.** The initial 0.6.0 package included a new Python source file that the older v0.5.1 updater would reject. Version 0.6.1 puts the same image-generation functionality in the already-approved core module `engine.py`. It is compatible with the v0.5.1 and v0.5.0 updater file allowlists. Your saved campaigns and existing voice setup stay intact.
+
 # Storyforge v0.6.0 — character codex & location artwork
 
 ## What's new

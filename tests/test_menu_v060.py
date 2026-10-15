@@ -15,6 +15,6 @@ class MenusV060(unittest.TestCase):
         import sys
         sys.path.insert(0,str(ROOT))
         import updater
-        self.assertTrue(updater.installable('artwork.py'))
+        self.assertFalse(updater.installable('artwork.py'))
         self.assertFalse(updater.installable('data/artwork/portraits/example.png'))
 if __name__=='__main__': unittest.main()

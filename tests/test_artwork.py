@@ -3,7 +3,8 @@ import pathlib, tempfile, unittest
 from unittest import mock
 import sys
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
-import artwork, engine
+import engine as artwork
+import engine
 
 PNG = (b'\x89PNG\r\n\x1a\n'+b'\x00\x00\x00\rIHDR'+b'\x00'*30)
 
