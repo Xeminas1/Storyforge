@@ -307,3 +307,14 @@ html,body{height:100%;scrollbar-color:#40505c #0e161e}
 #adventure .narrative strong{font-weight:700;color:#fff0d4}
 @media(prefers-reduced-transparency:reduce){#adventure.has-scene-background .gm-message,#adventure.has-scene-background .player-message{background:#09121bf2}}
 @media(max-width:700px){#adventure.has-scene-background .story-column::before{filter:blur(13px);opacity:.62}#adventure.has-scene-background .gm-message{background:#081018d9}}
+
+/* v0.10 - world research and attribution preview */
+.modal-box:has(#lore-search){width:min(800px,100%)}
+.lore-result-list{margin:15px 0;max-height:42vh;overflow-y:auto;overscroll-behavior:contain;display:grid;gap:8px}
+.lore-research-item{cursor:pointer;display:flex;align-items:start;gap:12px;border:1px solid #384750;border-radius:9px;background:rgba(14,25,34,.76);padding:12px;color:#dadeda}
+.lore-research-item input{margin:4px 0 0;accent-color:#ddb06e;width:17px;height:17px;flex:none}
+.lore-research-item > span{display:flex;flex-direction:column;gap:5px;font:12px/1.55 system-ui,sans-serif}
+.lore-research-item strong{color:#f4d39c;font-size:14px}.lore-research-item small{color:#aebfc9}
+.lore-research-item a{color:#d4bd8f}.lore-research-item a:hover{text-decoration:underline}
+.research-world{margin-top:8px;width:100%}
+@media(max-width:700px){.modal-box:has(#lore-search){padding:15px}.lore-result-list{max-height:33vh}}

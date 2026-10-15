@@ -1,4 +1,25 @@
-# Storyforge v0.9.0 — immersive scene backgrounds and story-led Game Master
+# Storyforge v0.10.0 — World lore discovery and player agency protections
+
+## New features
+
+- **Public lore discovery**: Create World → Discover universe lore, an existing world's **Discover lore** button, or World Atlas → Discover lore. Enter “Harry Potter” or “Wizarding World”; Storyforge expands related searches to include Fantastic Beasts, characters, magical places and more. Optional additional series are comma-separated.
+- **Opt-in, source-attributed import**: Review and select Wikipedia introduction extracts. Import to a new or existing world with article URLs and CC BY-SA 4.0 attribution recorded in each lore section. Duplicate entries are skipped. This is **not** a complete fictional universe data dump or an import of copyright-restricted Fables community worlds; encyclopaedia coverage is incomplete. Community-supplied canonical lore still takes precedence.
+- **Player agency**: GM policy explicitly prohibits inventing the protagonist's dialogue, thoughts, choices, spell use or physical actions. A second check detects obvious violations and retries the model twice. The action and GM turn are only committed after a valid response. Detection is deliberately conservative and cannot guarantee catching every improper PC action.
+- **Model response robustness**: Malformed JSON gets correction requests. If the GM fails three times, no action is consumed and an actionable error is returned. Ollama connection/timeout errors are clearer.
+
+## Limits and safety
+
+Lore discovery uses the public Wikimedia MediaWiki API over HTTPS. Requires a working internet connection; VPN or network policies may block it. Storyforge does not crawl creator-owned Fables worlds, fan-wiki sites, or private accounts. Wikipedia snippets are factual summaries that may be incomplete or differ from an adaptation; users decide which entries belong in the campaign. Stored reference lore is source data, **never instructions to the Game Master**.
+
+The game still uses a local Ollama model and the existing SQLite campaign saves. The update is compatible with the preceding version and does not alter `data/` when installed.
+
+## Tests
+
+Run `python -m unittest discover -s tests`. Build release with `python tools/build_release.py 0.10.0`.
+
+---
+
+# Storyforge v0.10.0 — immersive scene backgrounds and story-led Game Master
 
 ## Highlights
 

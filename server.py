@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import engine
+import lore
 import engine as artwork
 import narration
 import updater
@@ -22,7 +23,7 @@ PORT = int(os.getenv("STORYFORGE_PORT", "8787"))
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Storyforge/0.9.0"
+    server_version = "Storyforge/0.10.0"
 
     def _send(self, status: int, data: bytes, mime: str) -> None:
         self.send_response(status)
@@ -283,6 +284,21 @@ class Handler(BaseHTTPRequestHandler):
                     if type(info.get('locked')) is not bool: raise ValueError('locked must be true or false')
                     return self.reply({'scene':artwork.lock_scene(con,campaign['world_id'],
                         campaign['state'].get('location','Unknown'),info['locked'],DB_PATH)})
+                if path == '/api/lore/discover':
+                    payload=self.json_body()
+                    return self.reply(lore.discover(str(payload.get('query','')),str(payload.get('related',''))))
+                if path == '/api/lore/import':
+                    payload=self.json_body()
+                    sections=lore.as_sections(payload.get('entries',[]))
+                    world_id=str(payload.get('world_id') or '')
+                    if world_id:
+                        return self.reply({'world':engine.append_world_lore(con,world_id,sections)})
+                    title=engine.clean(payload.get('title'),150)
+                    if not title:raise ValueError('Enter a world name')
+                    world=engine.make_world(con,{'title':title,'author':'Community lore references (Wikipedia)',
+                      'description':engine.clean(payload.get('description'),2400) or 'Setting reference imported from Wikipedia, with source attribution.',
+                      'sections':sections})
+                    return self.reply({'world':world},201)
                 if path == "/api/worlds":
                     return self.reply({"world": engine.make_world(con, self.json_body())}, 201)
                 if path == "/api/worlds/import-zip":

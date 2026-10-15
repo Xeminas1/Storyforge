@@ -28,7 +28,7 @@ import uuid
 import zipfile
 from pathlib import Path, PurePosixPath
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 MAX_ZIP_SIZE = 30 * 1024 * 1024
 MAX_UNPACKED = 80 * 1024 * 1024
 MAX_FILES = 250
@@ -54,7 +54,7 @@ def installable(path: str) -> bool:
     if '..' in p.parts or '.' in p.parts or any(x.startswith('.') for x in p.parts):
         return False
     if len(p.parts) == 1:
-        return p.name in {"server.py", "engine.py", "narration.py", "updater.py", "README.md"}
+        return p.name in {"server.py", "engine.py", "narration.py", "lore.py", "updater.py", "README.md"}
     if len(p.parts) == 2 and p.parts[0] == 'static':
         return p.suffix in {'.html', '.css', '.js'}
     if p.parts == ('tools', 'build_release.py'):

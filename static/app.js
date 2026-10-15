@@ -28,7 +28,7 @@ async function refreshLibrary() {
   $('home-character-count').textContent=state.characters.length+' reusable characters · '+state.worlds.length+' worlds';
   $('recent-count').textContent=state.campaigns.length+' adventures';
   $('library-count').textContent = state.worlds.length + ' worlds';
-  $('worlds').innerHTML = state.worlds.map((w,i) => `<article class="world-card" data-world="${escapeHtml(w.id)}"><div class="card-art art-${i%5}"><span>✦</span></div><div class="world-card-body"><div class="eyebrow">${escapeHtml(w.section_count)} LORE ENTRIES</div><h3>${escapeHtml(w.title)}</h3><p>${escapeHtml(w.description || 'A world waiting for its story to begin.')}</p><div class="byline">Created by ${escapeHtml(w.author)}</div><button class="button secondary start-world" data-world="${escapeHtml(w.id)}">Start adventure →</button></div></article>`).join('');
+  $('worlds').innerHTML = state.worlds.map((w,i) => `<article class="world-card" data-world="${escapeHtml(w.id)}"><div class="card-art art-${i%5}"><span>✦</span></div><div class="world-card-body"><div class="eyebrow">${escapeHtml(w.section_count)} LORE ENTRIES</div><h3>${escapeHtml(w.title)}</h3><p>${escapeHtml(w.description || 'A world waiting for its story to begin.')}</p><div class="byline">Created by ${escapeHtml(w.author)}</div><button class="button secondary start-world" data-world="${escapeHtml(w.id)}">Start adventure →</button><button class="button ghost small research-world" data-world="${escapeHtml(w.id)}">◈ Discover lore</button></div></article>`).join('');
   $('campaign-links').innerHTML = `<div class="rail-popup-title">SAVED ADVENTURES</div>` + (state.campaigns.map(c => `<button class="nav campaign-link ${state.active?.id===c.id?'active':''}" data-campaign="${escapeHtml(c.id)}"><span>✧</span><span class="truncate">${escapeHtml(c.title)}</span></button>`).join('') || '<div class="empty-side">No adventures yet</div>');
   $('campaign-cards').innerHTML = state.campaigns.slice(0,8).map((c,i) => `<article class="recent-campaign-card"><div class="recent-campaign-cover art-${i%5}" data-cover="${escapeHtml(c.id)}"><img class="recent-cover-image hidden" alt="Scene from ${escapeHtml(c.title)}"><span class="recent-card-badge">✦ FANTASY</span><span class="recent-card-character">${escapeHtml(c.pc_name)}</span></div><div class="recent-campaign-info"><h3>${escapeHtml(c.title)}</h3><p class="muted">Last played ${escapeHtml(new Date(c.updated_at).toLocaleDateString())}</p><button class="button secondary reopen-campaign" data-campaign="${escapeHtml(c.id)}">▷ Continue</button></div></article>`).join('') || '<div class="home-empty">No campaigns yet. Choose a world below and begin your first story.</div>';
   for(const c of state.campaigns.slice(0,8)) {
@@ -39,6 +39,7 @@ async function refreshLibrary() {
       const img=cover.querySelector('img');img.src=data.scene.url;img.onload=()=>img.classList.remove('hidden');
     }).catch(()=>{});
   }
+  document.querySelectorAll('.research-world').forEach(b=>b.addEventListener('click', e=>{e.stopPropagation();showLoreResearch(b.dataset.world)}));
   document.querySelectorAll('.start-world').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); showCharacterModal(b.dataset.world); }));
   document.querySelectorAll('.campaign-link, .reopen-campaign').forEach(b => b.addEventListener('click', () => openCampaign(b.dataset.campaign)));
 }
@@ -56,13 +57,14 @@ function showModal(eyebrow,title,content) {
 function closeModal() { $('modal').classList.add('hidden'); }
 const inp = (id,label,placeholder='',type='text',required=false) => `<label class="field"><span>${label}</span><input id="${id}" type="${type}" placeholder="${escapeHtml(placeholder)}" ${required?'required':''}></label>`;
 function showImportModal() {
-  showModal('A NEW STORY', 'Import a community world', `<p class="muted modal-intro">Bring in a world shared by its creator. We never scrape or automatically download content from Friends & Fables.</p><div class="tab-switch"><button class="tab active" id="text-tab">Paste world lore</button><button class="tab" id="zip-tab">Import creator ZIP</button></div><form id="import-form">
+  showModal('A NEW STORY', 'Import a community world', `<p class="muted modal-intro">Bring in a world shared by its creator. We never scrape or automatically download content from Friends & Fables.</p><button type="button" class="button secondary full" id="research-during-create">◈ Discover universe lore online</button><div class="tab-switch"><button class="tab active" id="text-tab">Paste world lore</button><button class="tab" id="zip-tab">Import creator ZIP</button></div><form id="import-form">
     ${inp('world-title','WORLD NAME','e.g. The Shadow Kingdom','text',true)}
     ${inp('world-author','ORIGINAL CREATOR','Name or username')}
     ${inp('world-url','ORIGINAL WORLD LINK (ATTRIBUTION)','https://play.fables.gg/worlds/...','url')}
     <div id="import-text-fields"><label class="field"><span>WORLD OVERVIEW / LORE</span><textarea id="world-lore" rows="8" placeholder="Paste the world description, lore, characters and locations that the creator has shared..." required></textarea></label></div>
     <div id="import-zip-fields" class="hidden"><label class="field"><span>CREATOR-PROVIDED WORLD EXPORT (.ZIP)</span><input id="world-zip" type="file" accept=".zip,application/zip"></label><p class="muted note">Supports Markdown and JSON in CDF-style archives. Images and specialised game rules are not yet imported.</p></div>
     <button class="button primary full" type="submit">Import world →</button></form><p class="muted note">A public world link is stored as attribution, not used to fetch private or copyrighted data.</p>`);
+  $('research-during-create').onclick=()=>showLoreResearch(null,$('world-title').value);
   let mode='text';
   for(const kind of ['text','zip']) $(kind+'-tab').onclick=()=>{
     mode=kind;
@@ -84,6 +86,44 @@ function showImportModal() {
       }
       closeModal(); await refreshLibrary(); toast('World successfully added to your library');
     }catch(err){toast(err.message,true)}finally {submit.disabled=false;submit.textContent='Import world →';}
+  };
+}
+// Opt-in open-encyclopedia research; no Friends & Fables or fan-wiki scraping.
+async function showLoreResearch(worldId=null,prefill='') {
+  const current=worldId?state.worlds.find(w=>w.id===worldId):null;
+  const universe=prefill||current?.title||state.world?.title||'';
+  showModal('UNIVERSE RESEARCH','Discover & import world lore',`<p class="muted modal-intro">Search public Wikipedia summaries for places, characters, creatures and history. Review entries before importing. This is not a complete canon archive and won't copy Friends & Fables worlds.</p>
+    <label class="field"><span>UNIVERSE / SERIES NAME</span><input id="lore-query" placeholder="Harry Potter / Wizarding World" value="${escapeHtml(universe)}"></label>
+    <label class="field"><span>RELATED SERIES (OPTIONAL, COMMA-SEPARATED)</span><input id="lore-related" placeholder="Fantastic Beasts, Hogwarts"></label>
+    ${worldId?`<p class="muted note">Add lore to: <strong>${escapeHtml(current?.title||'selected world')}</strong></p>`:'<label class="field"><span>NEW WORLD TITLE</span><input id="lore-world-title" placeholder="Wizarding World" value="${escapeHtml(universe)}"></label>'}
+    <button class="button primary full" id="lore-search">Search public lore →</button>
+    <div id="lore-search-results" aria-live="polite"></div><div class="note muted">Source: Wikipedia · CC BY-SA 4.0. Reference summaries may be incomplete or differ from a particular book or adaptation. Attribution is saved with each entry.</div>`);
+  const results=$('lore-search-results');
+  let entries=[];
+  $('lore-search').onclick=async()=>{
+    const query=$('lore-query').value.trim();
+    if(!query)return toast('Enter the universe you want to research',true);
+    const btn=$('lore-search');btn.disabled=true;btn.textContent='Searching...';
+    results.innerHTML='<p class="muted">Searching the public encyclopedia…</p>';
+    try{
+      const data=await request('/api/lore/discover',{method:'POST',body:{query,related:$('lore-related').value}});
+      entries=data.entries||[];
+      results.innerHTML=entries.length?`<p class="muted note">${entries.length} reference articles found. Check the lore you want to keep, then import.</p><div class="lore-result-list">${entries.map((e,i)=>`<label class="lore-research-item"><input type="checkbox" class="lore-choose" value="${i}" checked><span><strong>${escapeHtml(e.title)}</strong><small>${escapeHtml(e.kind)} · <a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Source ↗</a></small><span>${escapeHtml(e.summary.slice(0,330))}${e.summary.length>330?'…':''}</span></span></label>`).join('')}</div><button class="button primary full" id="lore-import">${worldId?'Add selected lore to world':'Create world with selected lore'} →</button>`:'<p class="muted">No public lore found. Try the franchise name or add a related series.</p>';
+      if(entries.length)$('lore-import').onclick=async()=>{
+        const selected=[...document.querySelectorAll('.lore-choose:checked')].map(x=>entries[Number(x.value)]).filter(Boolean);
+        if(!selected.length)return toast('Select at least one lore entry',true);
+        const title=worldId?'':$('lore-world-title').value.trim();
+        if(!worldId&&!title)return toast('Enter a world title',true);
+        const submit=$('lore-import');submit.disabled=true;submit.textContent='Importing lore...';
+        try{
+          const data=await request('/api/lore/import',{method:'POST',body:{world_id:worldId,title,entries:selected}});
+          closeModal();await refreshLibrary();
+          if(state.world?.id===worldId){state.world=data.world;renderWorldDetails(data.world);if(!$('codex-overlay').classList.contains('hidden'))renderCodexWorld();}
+          toast(`Imported ${data.world.added??selected.length} lore entries with attribution`);
+        }catch(e){toast(e.message,true)}finally{submit.disabled=false;submit.textContent='Import selected lore →';}
+      };
+      if(data.warnings?.length)toast('Some research queries failed; available results are shown.',true);
+    }catch(e){results.innerHTML='';toast(e.message,true)}finally{btn.disabled=false;btn.textContent='Search public lore →';}
   };
 }
 const charText = (id, label, hint='', rows=2, value='') => `<label class="field"><span>${label}</span><textarea id="${id}" rows="${rows}" placeholder="${escapeHtml(hint)}">${escapeHtml(value)}</textarea></label>`;
@@ -280,6 +320,11 @@ function renderWorldDetails(world) {
   $('world-detail-title').textContent=world.title;
   $('world-detail-description').textContent=world.description||'The world awaits discovery.';
   $('world-detail-author').textContent=world.author||'Unknown creator';
+  if(!$('world-lore-research')){
+    const button=document.createElement('button');button.id='world-lore-research';button.className='button secondary small';button.textContent='◈ Discover lore';
+    $('world-detail-description').insertAdjacentElement('afterend',button);
+  }
+  $('world-lore-research').onclick=()=>showLoreResearch(world.id,world.title);
   $('world-lore-entries').innerHTML=(world.sections||[]).slice(0,60).map((entry,i)=>`<details class="lore-entry"><summary><span>${escapeHtml(entry.title||'World entry')}</span><small>${escapeHtml(entry.kind||'lore')}</small></summary><p>${escapeHtml((entry.content||'').slice(0,1800))}</p></details>`).join('')||'<p class="muted">No lore entries available</p>';
 }
 function revealDetailsOnMobile(){
@@ -375,7 +420,8 @@ function renderCodexTab(){
 }
 function renderCodexWorld(){
   const w=state.world;
-  $('codex-body').innerHTML=`<div class="codex-world-header"><h2>${escapeHtml(w.title)}</h2><p>${escapeHtml(w.description||'Explore this world through your story.')}</p><span class="muted">Created by ${escapeHtml(w.author||'Unknown')}</span></div><div class="codex-grid">${(w.sections||[]).slice(0,150).map(e=>codexSection(e.title||'Lore',`<div class="eyebrow">${escapeHtml(e.kind||'lore')}</div>${paragraph((e.content||'').slice(0,10000))}`)).join('')}</div>`;
+  $('codex-body').innerHTML=`<div class="codex-world-header"><h2>${escapeHtml(w.title)}</h2><p>${escapeHtml(w.description||'Explore this world through your story.')}</p><span class="muted">Created by ${escapeHtml(w.author||'Unknown')}</span><br><button class="button secondary small" id="codex-research-lore">◈ Discover lore</button></div><div class="codex-grid">${(w.sections||[]).slice(0,150).map(e=>codexSection(e.title||'Lore',`<div class="eyebrow">${escapeHtml(e.kind||'lore')}</div>${paragraph((e.content||'').slice(0,10000))}`)).join('')}</div>`;
+  $('codex-research-lore')?.addEventListener('click',()=>showLoreResearch(w.id,w.title));
 }
 function renderCodexJournal(){
   const journal=state.active.state?.journal||[];
