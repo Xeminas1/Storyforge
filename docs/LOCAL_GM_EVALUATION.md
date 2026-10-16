@@ -1,6 +1,6 @@
 # Local GM evaluation — v0.15.0
 
-The user approved pushing this update with "push this update please" on 2026-10-16, superseding the earlier local-only freeze for v0.15.0. Release preparation is underway; publication is not yet confirmed here. Run these commands from the updated checkout or installed v0.15.0 after publication; the older v0.14.0 ZIP does not contain them. README includes the essential instructions because this document is excluded from release ZIPs. This approval covers the current update, not unrelated future releases.
+The user approved pushing this update with "push this update please" on 2026-10-16, superseding the earlier local-only freeze for v0.15.0. [v0.15.0 is published and its package verified](https://github.com/Xeminas1/Storyforge/releases/tag/v0.15.0). Run these commands from the updated checkout or installed v0.15.0; the older v0.14.0 ZIP does not contain them. README includes the essential instructions because this document is excluded from release ZIPs. This approval covers the current update, not unrelated future releases.
 
 ## What changed
 

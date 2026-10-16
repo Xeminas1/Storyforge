@@ -1,6 +1,6 @@
 # Storyforge v0.15.0 — release continuation handoff
 
-Updated: 2026-10-16. Implementation and automated verification are complete locally. The user approved pushing this update; final v0.15.0 release verification and live-model acceptance remain pending.
+Updated: 2026-10-16. **v0.15.0 is published and verified.** Live-model acceptance and installation on the user's PC remain pending.
 
 ## Authorization and scheduling
 
@@ -14,7 +14,7 @@ Investigate official public Fables behavior and independently improve Storyforge
 
 ## Starting point and current work
 
-The last confirmed published release is v0.14.0, commit c537c8c99323ba9de267cc4e463917ac5c81178a. The current GM rework is being prepared as v0.15.0 under the approval above; retain all existing changes. This record does not yet confirm a release commit, successful workflow or published asset.
+The latest confirmed release is [v0.15.0](https://github.com/Xeminas1/Storyforge/releases/tag/v0.15.0), release commit 1e664e61943bc744d2a29d21e75c78f8101bd7a4. [GitHub Actions run 38860433940](https://github.com/Xeminas1/Storyforge/actions/runs/38860433940) succeeded, including tests, package creation and publication. The main branch and release tag were checked against that commit. The previous release was v0.14.0 at c537c8c99323ba9de267cc4e463917ac5c81178a.
 
 Changes currently in engine.py, server.py, static/app.js and tests:
 
@@ -39,10 +39,11 @@ The previous public Fables access blocker is resolved. Official help/blog/patch 
 
 The final v0.15.0 ZIP validates with the current updater and historical v0.14.0/v0.13.0/v0.12.1 updaters. All 37 manifest files match the workspace. It contains only approved application/test paths, excluding docs, AGENTS.md and private data. No local installation was performed. The earlier same-version v0.14.0 review artifact must not be published as this release.
 
+The actual published Storyforge_v0.15.0.zip was downloaded through the historical v0.14.0 updater's normal release parser and verified-download path. Size: 188,026 bytes; SHA-256: 7be1207dfd67a068bad77a97f09196972f6fd9f53e965d9821459304d81775a0. It matches GitHub's advertised digest and every packaged workspace file, and passes all three historical validators. GitHub's latest stable release endpoint also reports v0.15.0. This proves publication and package compatibility, not installation on the user's Windows PC.
+
 ## Release completion and local acceptance
 
-1. Version-sensitive tests and final package validation pass. Use the approved main-branch workflow, then verify its success and the actual release ZIP before recording publication. The current update already has push/release approval.
-2. Ask the user to install through the updater after publication and run the disposable evaluation on their local Ollama installation, following [LOCAL_GM_EVALUATION.md](LOCAL_GM_EVALUATION.md) or README. This cloud machine has no running Ollama: one real request failed to connect and nine scenarios were explicitly unrun. Automated acceptance does not prove Qwen story quality, semantic player agency, lore accuracy or responsiveness. No replacement model has been selected.
-3. Review accepted and rejected attempts, costs/limits, Hogwarts continuity and retry preservation. Check existing Windows campaigns, artwork and voice/music on the user's machine. The new memory feature does not fabricate or backfill old campaign memories. Do not claim the user's PC installed a release without local confirmation.
+1. Publication is complete. Ask the user to install through Updates and run the disposable evaluation on their local Ollama installation, following [LOCAL_GM_EVALUATION.md](LOCAL_GM_EVALUATION.md) or README. This cloud machine has no running Ollama: one real request failed to connect and nine scenarios were explicitly unrun. Automated acceptance does not prove Qwen story quality, semantic player agency, lore accuracy or responsiveness. No replacement model has been selected.
+2. Review accepted and rejected attempts, costs/limits, Hogwarts continuity and retry preservation. Check existing Windows campaigns, artwork and voice/music on the user's machine. The new memory feature does not fabricate or backfill old campaign memories. Do not claim the user's PC installed a release without local confirmation.
 
 The approved release allowlist accepts existing engine/server/static files and tests/test_*.py; new runtime module filenames or tools/evaluation files would break older updaters. Keep implementation within existing approved files.

@@ -1,8 +1,8 @@
 # Development notes
 
-## v0.15.0 prepared — 2026-10-16
+## v0.15.0 — 2026-10-16
 
-The user explicitly approved this update with "push this update please". The earlier local-only freeze is superseded for the v0.15.0 GM rework, which is prepared for the existing main-branch GitHub release workflow. Publication is not yet confirmed in this record; this approval is specific to the current update. No automatic Cloud continuation was created: this session has no scheduling capability. Current state and verification are recorded in [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md).
+The user explicitly approved this update with "push this update please". The earlier local-only freeze was superseded for the v0.15.0 GM rework. [v0.15.0](https://github.com/Xeminas1/Storyforge/releases/tag/v0.15.0) was published through the existing main-branch workflow at commit 1e664e61943bc744d2a29d21e75c78f8101bd7a4; [run 38860433940](https://github.com/Xeminas1/Storyforge/actions/runs/38860433940) succeeded. Approval was specific to this update. No automatic Cloud continuation was created: this session has no scheduling capability. Current state and verification are recorded in [CONTINUATION_HANDOFF.md](CONTINUATION_HANDOFF.md).
 
 Official public Fables documentation is now reachable. [FABLES_RESEARCH.md](FABLES_RESEARCH.md) distinguishes documented product architecture from observed gameplay and engineering inference. Its central lesson is targeted context research, narration and state handling, rather than an ever-longer narrator prompt. No signed-in play or proprietary implementation was inspected. The local adaptation uses deterministic retrieval and validation rather than adding a dozen serial model calls.
 
@@ -14,7 +14,7 @@ Memory is additive state JSON using existing checkpoints. Journal and Relationsh
 
 A disposable ten-scenario local evaluation CLI records synthetic prompts, accepted/rejected drafts, timing and preservation checks, with explicit pending human review. Optional model metadata is limited to version/identity/capability fields and never prevents gameplay evaluation. [LOCAL_GM_EVALUATION.md](LOCAL_GM_EVALUATION.md) contains commands and model-comparison guidance. No model was downloaded, switched or proven superior. This cloud environment has no running Ollama, so live Qwen behavior and Windows/GPU performance remain unverified.
 
-Pre-release validation: 231 tests pass on both Python 3.13.5 and 3.12.14 after the v0.15.0 version bump, including executable Node request/memory UI checks and actual localhost HTTP protocol tests. JavaScript syntax and diff checks pass. The final v0.15.0 package validates with the current updater and historical v0.14.0/v0.13.0/v0.12.1 validators. All 37 manifest files match the workspace; private data and repository-only documentation are excluded. Workflow and published-asset verification remain part of release completion. No local installation was performed.
+Validation: 231 tests pass on both Python 3.13.5 and 3.12.14 after the v0.15.0 version bump, including executable Node request/memory UI checks and actual localhost HTTP protocol tests. JavaScript syntax and diff checks pass. The actual published ZIP passes the v0.14.0 updater's normal verified-download path and historical v0.13.0/v0.12.1 validators. All 37 manifest files match the tested workspace; private data and repository-only documentation are excluded. Its 188,026 bytes match GitHub's SHA-256 7be1207dfd67a068bad77a97f09196972f6fd9f53e965d9821459304d81775a0. No local installation was performed.
 
 ## v0.14.0
 
