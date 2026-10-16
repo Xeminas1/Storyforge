@@ -1,3 +1,38 @@
+# Storyforge v0.15.0 — focused GM context and persistent story memory
+
+This update gives the local Game Master a focused view of the current story, validates proposed state changes and adds inspectable campaign memory.
+
+- **Focused context:** one 16,000 UTF-8-byte budget replaces independently truncated prompts. Complete required world premises and requested ability effects, costs and limits survive; recent developments and the latest scene ending take priority over optional older detail. Essential context that cannot fit produces a clear error before inference. Byte counts estimate context pressure, not exact model tokens.
+- **Grounded story memory:** optional NPC facts, observed events and pending threads persist with campaign checkpoints. Production state changes and memory need exact visible narration evidence. Journal and Relationships controls remove incorrect notes from current state and rewind snapshots without deleting story messages.
+- **Model reliability:** typed JSON Schema, independent structure/evidence validation, incomplete-response rejection and bounded repair requests. The known `qwen3:8b` tag uses Qwen's documented non-thinking sampling baseline; this does not change or download your model.
+- **Local evaluation:** compare installed models through ten disposable synthetic scenarios covering player agency, spell limits, Hogwarts continuity, lore priority, repetition and retry preservation.
+
+Campaigns, characters, spellbooks, artwork, voice and music remain supported. Memory uses additive state JSON with existing checkpoints; this update adds no SQLite schema migration or third-party Python dependencies. It does not backfill invented memories into older campaigns.
+
+Local verification currently passes **231 tests on Python 3.13 and 3.12**, including scripted HTTP/Ollama and executable browser-control checks. These safeguards cannot prove semantic player agency, story quality or Fables parity. Live Qwen behavior and Windows/GPU performance remain unverified; local gameplay testing remains necessary.
+
+## Install and evaluate v0.15.0
+
+After GitHub publishes v0.15.0, use **Updates → Check & install latest release now**, then refresh the browser. Your private `data/` directory is retained.
+
+Start Ollama as usual. From your updated Storyforge folder in PowerShell, run:
+
+```powershell
+py server.py --evaluate-model qwen3:8b --repeat 1 --report data/model-check-qwen-v015.json
+```
+
+This uses disposable campaigns, leaves personal saves untouched, and does not start the server/updater, download a model or change your selected model. Reports include synthetic prompts, generated/rejected prose and timings. Existing reports are never overwritten; choose a new filename for another run. Open the JSON report and review each case's manual-review questions: `completed` means the pipeline accepted it, not that storytelling or player agency is proven correct. A transport failure leaves later cases explicitly unrun.
+
+To compare models already installed on your PC, first run `ollama list`, then repeat `--evaluate-model` with those exact names. For example, **only if both tags are installed**:
+
+```powershell
+py server.py --evaluate-model qwen3:8b --evaluate-model qwen3:14b --repeat 3 --report data/model-comparison-v015.json
+```
+
+No replacement model has been selected. Check an existing campaign's player agency, Hogwarts scene progression, a later-turn retry, saved artwork and audio controls after updating. Maintainers run `python -m unittest discover -s tests -v` and `node --check static/app.js` before publication. Extended evaluation and research notes live under `docs/` in GitHub; they are excluded from installed ZIPs.
+
+---
+
 # Storyforge v0.14.0 — player ownership, grounded lore and reliable corrections
 
 This release strengthens the boundary between the player's submitted action and the GM's world/NPC narration, and fixes several ways a failed or delayed request could damage continuity.

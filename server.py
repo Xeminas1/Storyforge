@@ -321,6 +321,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, audio, "audio/mpeg")
                 if path == "/api/campaigns":
                     return self.reply({"campaign": engine.new_campaign(con, self.json_body())}, 201)
+                if path.startswith('/api/campaigns/') and path.endswith('/memory/remove'):
+                    parts=path.split('/')
+                    if len(parts)!=6:return self.reply({'error':'Not found'},404)
+                    payload=self.json_body()
+                    return self.reply(engine.remove_scene_memory(con,parts[3],str(payload.get('kind','')),
+                        payload.get('index'),str(payload.get('text','')),str(payload.get('name',''))))
                 if path.startswith('/api/campaigns/') and path.endswith('/journal/remove'):
                     parts=path.split('/')
                     if len(parts)!=6:return self.reply({'error':'Not found'},404)
@@ -384,5 +390,43 @@ def run(host: str = HOST, port: int = PORT):
         server.server_close()
 
 
+def main(argv=None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(description='Run Storyforge or review installed local GM models using disposable synthetic campaigns.')
+    parser.add_argument('--evaluate-model', action='append', metavar='MODEL',
+                        help='Evaluate an installed Ollama model; repeat this flag to compare models. Does not download or switch models.')
+    parser.add_argument('--repeat', type=int, default=None, metavar='1-5',
+                        help='Repeat each synthetic scenario (default: 1; evaluation only).')
+    parser.add_argument('--report', type=Path, metavar='PATH.json',
+                        help='Write a synthetic evaluation report to a new JSON file. Existing files are never overwritten.')
+    args = parser.parse_args(argv)
+    if not args.evaluate_model:
+        if args.repeat is not None or args.report is not None:
+            parser.error('--repeat and --report require --evaluate-model.')
+        run()
+        return 0
+    repeats = args.repeat if args.repeat is not None else 1
+    if not 1 <= repeats <= 5:
+        parser.error('--repeat must be between 1 and 5.')
+    destination = args.report or ROOT / 'data' / ('model-check-' + time.strftime('%Y%m%d-%H%M%S') + '-' + engine.new_id()[:8] + '.json')
+    if destination.suffix.lower() != '.json':
+        parser.error('--report must name a new .json file.')
+    if destination.exists() or destination.is_symlink():
+        parser.error(f'Report already exists: {destination}. Choose a new filename.')
+    try:
+        report = engine.evaluate_local_gm(args.evaluate_model, repeat=repeats,
+                                         progress=lambda message: print(message, flush=True))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open('x', encoding='utf-8') as output:
+            json.dump(report, output, ensure_ascii=False, indent=2)
+            output.write('\n')
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    summary = report['summary']
+    print(f'Report saved to {destination}. Completed: {summary["completed"]}; failed: {summary["failed"]}; not run: {summary["not_run"]}.')
+    print('Review generated narration and rejected attempts manually. Accepted output does not prove model quality or parity with another game.')
+    return 1 if summary['failed'] or summary['not_run'] else 0
+
+
 if __name__ == "__main__":
-    run()
+    raise SystemExit(main())

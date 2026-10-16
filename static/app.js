@@ -516,10 +516,11 @@ function renderCodexTab(){
   else if(t==='inventory')html=codexSection('Inventory',(s.inventory||[]).length?`<ul>${s.inventory.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ul>`:'<p class="muted">Your inventory is empty.</p>');
   else if(t==='spellbook')html=codexSection('Abilities and Spells',spellLibraryMarkup(pc,state.active.id));
   else if(t==='progression')html=codexSection('Character progression',`<p>Level: ${escapeHtml(pc.level||'Not specified')}</p><p class="muted">There is no automatic XP or levelling system yet. Your character changes through the story.</p>`);
-  else if(t==='relationships')html=codexSection('Relationships', '<p class="muted">Automatic relationship tracking is not implemented yet. The Game Master may still remember relationships described in your narrative.</p>');
+  else if(t==='relationships')html=renderSceneMemory(s.scene_memory,true);
   else html=codexSection('Memories',(s.journal||[]).length?`<ol>${s.journal.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ol>`:'<p class="muted">No memories recorded yet.</p>');
   $('codex-tab-content').innerHTML=html;
   if(t==='spellbook')wireSpellButtons('campaigns',state.active.id,pc);
+  if(t==='relationships')wireSceneMemoryRemoval($('codex-tab-content'));
 }
 function renderCodexWorld(){
   const w=state.world;
@@ -527,10 +528,46 @@ function renderCodexWorld(){
   $('codex-research-lore')?.addEventListener('click',()=>showLoreResearch(w.id,w.title));
   $('codex-gm-context')?.addEventListener('click',showGmLoreContext);
 }
+function renderSceneMemory(memory,onlyNpcs=false){
+  if(!memory||typeof memory!=='object')return codexSection(onlyNpcs?'Remembered people':'Scene memory','<p class="muted">No scene memories yet. New turns can record observed people, events and unanswered story threads.</p>');
+  const remove=(kind,index,text,name='')=>'<button class="remove-scene-memory" type="button" aria-label="Remove this remembered fact" data-memory="'+escapeHtml(JSON.stringify({kind,index,text,name}))+'">✕</button>';
+  const list=(values,kind)=>'<ul>'+values.map((text,index)=>'<li class="development-entry"><span>'+escapeHtml(text)+'</span>'+remove(kind,index,text)+'</li>').join('')+'</ul>';
+  const npcs=Array.isArray(memory.npcs)?memory.npcs:[];
+  let html='';
+  if(!onlyNpcs&&memory.summary)html+=codexSection('Current scene','<p>'+escapeHtml(memory.summary)+'</p>'+remove('summary',0,memory.summary));
+  html+=codexSection('Remembered people',npcs.length?npcs.map(n=>'<details class="lore-entry"><summary>'+escapeHtml(n.name)+'</summary><ul>'+(n.facts||[]).map((text,index)=>'<li class="development-entry"><span>'+escapeHtml(text)+'</span>'+remove('npc_fact',index,text,n.name)+'</li>').join('')+'</ul></details>').join(''):'<p class="muted">No NPC facts recorded yet.</p>');
+  if(!onlyNpcs){
+    html+=codexSection('Unanswered threads',(memory.open_threads||[]).length?list(memory.open_threads,'open_threads'):'<p class="muted">No open threads recorded.</p>');
+    html+=codexSection('Observed events',(memory.events||[]).length?list(memory.events,'events'):'<p class="muted">No events recorded yet.</p>');
+  }
+  return '<p class="muted">These notes come from accepted story turns. Remove an inaccurate note here, or retry its source turn to correct the story itself. Removing a note does not rewrite old messages.</p>'+html;
+}
+function wireSceneMemoryRemoval(container){
+  container.querySelectorAll('.remove-scene-memory').forEach(button=>{
+    button.onclick=async()=>{
+      if(state.busy||!state.active)return;
+      const campaign=state.active,view=campaignView;
+      const payload=JSON.parse(button.dataset.memory);
+      if(!window.confirm('Remove this remembered fact? Existing story messages will remain unchanged.'))return;
+      state.busy=true;button.disabled=true;$('send-action').disabled=true;
+      try{
+        const result=await request('/api/campaigns/'+encodeURIComponent(campaign.id)+'/memory/remove',{method:'POST',body:payload});
+        if(state.active===campaign&&view===campaignView){
+          state.active.state=result.state;updateState(result.state);
+          if($('nav-journal').classList.contains('active'))renderCodexJournal();
+          else if($('nav-character').classList.contains('active'))renderCodexCharacter();
+        }
+        toast('Remembered fact removed');
+      }catch(error){toast(error.message,true)}
+      finally{state.busy=false;$('send-action').disabled=false;if(document.contains(button))button.disabled=false;}
+    };
+  });
+}
 function renderCodexJournal(){
   const journal=state.active.state?.journal||[];
-  $('codex-body').innerHTML=codexSection('Story developments',journal.length?`<ol class="codex-journal">${journal.map((text,index)=>`<li class="development-entry"><span>${escapeHtml(text)}</span><button class="remove-development" data-index="${index}" aria-label="Remove this development" title="Remove inaccurate story development">✕</button></li>`).join('')}</ol>`:'<p class="muted">Your adventure is just beginning.</p>');
+  $('codex-body').innerHTML=codexSection('Story developments',journal.length?`<ol class="codex-journal">${journal.map((text,index)=>`<li class="development-entry"><span>${escapeHtml(text)}</span><button class="remove-development" data-index="${index}" aria-label="Remove this development" title="Remove inaccurate story development">✕</button></li>`).join('')}</ol>`:'<p class="muted">Your adventure is just beginning.</p>')+renderSceneMemory(state.active.state?.scene_memory);
   wireJournalRemoval($('codex-body'));
+  wireSceneMemoryRemoval($('codex-body'));
 }
 async function uploadPortrait(id,file){
   if(file.size>8*1024*1024)throw new Error('Portrait must be smaller than 8 MB');

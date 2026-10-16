@@ -19,6 +19,8 @@ Read [docs/CODEX_HANDOFF.md](docs/CODEX_HANDOFF.md) and [README.md](README.md) b
 - `tests/`: regression and API tests. Extend these for every bugfix.
 
 ## Working and shipping
+On 2026-10-16 the user said **"push this update please"**, approving the current GM rework as **v0.15.0** through the existing main-branch release workflow. This approval supersedes the earlier local-only freeze for this update. Verify publication before claiming success; it does not authorize unrelated future releases. See [docs/CONTINUATION_HANDOFF.md](docs/CONTINUATION_HANDOFF.md) for current release and scheduling status.
+
 1. Reproduce and test the problem first. Avoid claiming a model-level fix is guaranteed merely because a regex or prompt was added.
 2. Run `python -m unittest discover -s tests -v` and `node --check static/app.js`; run browser/HTTP tests when practical, disclose any unavailable verification.
 3. **Crucial updater compatibility:** the installed updater accepts only an explicit set of ZIP paths (see `updater.installable`). v0.10.0 broke updates by adding `lore.py` to a ZIP; v0.10.1 had to move it to approved `engine.py`. Do not introduce new installable filenames without a tested upgrade path from the user's current installed version. Repository-only `AGENTS.md` and `docs/` are deliberately not part of the release ZIP.

@@ -89,7 +89,8 @@ class GameMasterHttpTests(unittest.TestCase):
         bad = 'Xeminas believes the stranger is trustworthy.'
         self.model.replies = [
             output(bad, location='Throne Room'),
-            output('The sentry calls for the gatekeeper.', location='River Gate'),
+            output('At River Gate, the sentry calls for the gatekeeper.', location='River Gate',
+                   evidence={'location':'At River Gate, the sentry calls for the gatekeeper.'}),
         ]
         result = self.post('/turn', {'action': 'I watch the sentry.', 'model': 'qwen3:8b'})
         self.assertEqual(len(self.model.requests), 2)
@@ -97,7 +98,8 @@ class GameMasterHttpTests(unittest.TestCase):
         self.assertEqual([m['role'] for m in result['messages']], ['player', 'gm'])
         self.assertTrue(result['messages'][-1]['has_checkpoint'])
         sent = self.model.requests[-1]
-        self.assertEqual(sent['format'], 'json')
+        self.assertEqual(sent['format']['type'], 'object')
+        self.assertEqual(sent['format']['required'], ['narration','state_updates'])
         self.assertFalse(sent['think'])
         self.assertNotIn(bad, json.dumps(sent['messages']))
 
@@ -110,9 +112,13 @@ class GameMasterHttpTests(unittest.TestCase):
         self.assertEqual(len(self.model.requests), 2)
 
     def test_retry_later_turn_uses_prior_history_without_crashing(self):
-        self.model.replies = [output('The sentry calls for a lantern.', inventory_add=['gate token'])]
+        first_text='The sentry calls for a lantern and puts a gate token into your hand.'
+        self.model.replies = [output(first_text, inventory_add=['gate token'],
+                                    evidence={'inventory_add':first_text})]
         self.post('/turn', {'action': 'I listen.'})
-        self.model.replies = [output('A gatekeeper opens the shutter.', journal_entry='The shutter opened.')]
+        self.model.replies = [output('A gatekeeper opens the shutter.',
+                                    journal_entry='A gatekeeper opens the shutter.',
+                                    evidence={'journal_entry':'A gatekeeper opens the shutter.'})]
         second = self.post('/turn', {'action': 'I wait.'})
         target = second['messages'][-1]['id']
         self.model.replies = [output('The gatekeeper asks the sentry for a lantern.')]
@@ -122,6 +128,33 @@ class GameMasterHttpTests(unittest.TestCase):
         self.assertEqual(result['state']['journal'], [])
         self.assertTrue(any(m['role'] == 'assistant' and 'sentry calls' in m['content']
                             for m in self.model.requests[-1]['messages']))
+
+    def test_memory_removal_route_preserves_story_and_rewind_correction(self):
+        text = 'Maribel guards the brass observatory key.'
+        self.model.replies = [output(text, scene_memory={
+            'npcs': [{'name': 'Maribel', 'fact': text, 'evidence': text}],
+            'events': [{'text': text, 'evidence': text}],
+        })]
+        first = self.post('/turn', {'action': 'I listen.'})
+        self.model.replies = [output('The sentry calls for the gatekeeper.')]
+        second = self.post('/turn', {'action': 'I wait.'})
+        target = second['messages'][-1]['id']
+        calls = len(self.model.requests)
+        payload = {'kind': 'npc_fact', 'name': 'Maribel', 'index': 0, 'text': text}
+        result = self.post('/memory/remove', payload)
+        self.assertTrue(result['removed'])
+        self.assertEqual(result['state']['scene_memory']['npcs'], [])
+        self.assertEqual(result['state']['scene_memory']['events'], [text])
+        self.assertEqual(len(self.model.requests), calls)
+        before = self.dump()
+        stale = self.post('/memory/remove', payload, expected=400)
+        self.assertIn('Refresh', stale['error'])
+        self.assertEqual(self.dump(), before)
+        self.model.replies = [output('A gatekeeper opens the shutter.')]
+        retried = self.post(f'/messages/{target}/retry', {'feedback': 'Continue the conversation.'})
+        self.assertEqual(retried['state']['scene_memory']['npcs'], [])
+        self.assertEqual(retried['state']['scene_memory']['events'], [text])
+        self.assertEqual(retried['messages'][1]['content'], first['messages'][1]['content'])
 
 
 if __name__ == '__main__':
